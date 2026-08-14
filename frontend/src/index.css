@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: #e1ac3d;
+  color: #173681;
+}
+
+/* subtle branded scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #adbaeb;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #173681;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-navy px-5 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-navy-800 hover:shadow-card-hover active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-accent {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-gold px-5 py-2.5 text-sm font-semibold text-navy-900 transition-all duration-200 hover:bg-gold-500 hover:shadow-card-hover active:scale-[0.98];
+  }
+  .card {
+    @apply rounded-2xl border border-navy-100 bg-white shadow-card transition-shadow duration-300 hover:shadow-card-hover;
+  }
+  .input-field {
+    @apply w-full rounded-lg border border-navy-100 bg-white px-4 py-2.5 text-sm text-navy-900 outline-none transition-all duration-200 focus:border-navy focus:ring-4 focus:ring-navy-100 placeholder:text-navy-300;
+  }
+}

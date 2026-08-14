@@ -1,0 +1,185 @@
+// ============================================================
+// Simtel Learning Platform — Database Schema
+// PostgreSQL + Prisma ORM
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum ProductKeyStatus {
+  UNUSED    // generated, not yet assigned
+  ASSIGNED  // currently active on a user
+  REVOKED   // manually revoked by an admin
+  EXPIRED   // past expiry date
+}
+
+// ------------------------------------------------------------
+// COLLEGE
+// ------------------------------------------------------------
+
+model College {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique // short college code, e.g. "LNCT001"
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  productKeys ProductKey[]
+
+  @@map("colleges")
+}
+
+// ------------------------------------------------------------
+// USER (Super Admin / Admin / Student)
+// ------------------------------------------------------------
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(USER)
+  status       UserStatus @default(ACTIVE)
+
+  // A College Admin or Student belongs to a college.
+  // A Super Admin has no college (platform-level).
+  collegeId String?
+  college   College? @relation(fields: [collegeId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastLoginAt DateTime?
+
+  // Product keys assigned to this user (their module authorizations)
+  productKeys ProductKey[] @relation("AssignedKeys")
+
+  // Product keys this user (admin/super admin) generated
+  generatedKeys ProductKey[] @relation("GeneratedKeys")
+
+  refreshTokens RefreshToken[]
+  progress      Progress[]
+
+  @@index([collegeId])
+  @@index([role])
+  @@map("users")
+}
+
+// ------------------------------------------------------------
+// REFRESH TOKENS (rotation-based session security)
+// ------------------------------------------------------------
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  userAgent String?
+  ipAddress String?
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ------------------------------------------------------------
+// PRODUCT (a learning module — e.g. PLC, Electrical, Embedded)
+// New modules are added as ROWS here, never as new code paths.
+// ------------------------------------------------------------
+
+model Product {
+  id          String   @id @default(cuid())
+  code        String   @unique // "PLC", "ELEC", "EMB", "DSP", ...
+  name        String   // "PLC & Industrial Automation"
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  productKeys ProductKey[]
+  progress    Progress[]
+
+  @@map("products")
+}
+
+// ------------------------------------------------------------
+// PRODUCT KEY (module license — belongs to exactly ONE product)
+// Format enforced at generation time: CODE-XXXX-XXXX-XXXX
+// ------------------------------------------------------------
+
+model ProductKey {
+  id        String           @id @default(cuid())
+  keyString String           @unique // e.g. "PLC-4F2A-9K1B-77QX"
+  status    ProductKeyStatus @default(UNUSED)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  // A key is generated for/within a college's pool (optional, for bulk licensing)
+  collegeId String?
+  college   College? @relation(fields: [collegeId], references: [id])
+
+  // Once assigned, this is the student who owns the authorization
+  assignedToUserId String?
+  assignedToUser   User?   @relation("AssignedKeys", fields: [assignedToUserId], references: [id])
+  assignedAt       DateTime?
+
+  // Who generated this key (always a Super Admin)
+  generatedByUserId String
+  generatedByUser   User   @relation("GeneratedKeys", fields: [generatedByUserId], references: [id])
+
+  expiresAt DateTime? // null = perpetual license
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([productId])
+  @@index([assignedToUserId])
+  @@index([collegeId])
+  @@map("product_keys")
+}
+
+// ------------------------------------------------------------
+// PROGRESS (per-user, per-module progress tracking — foundation only)
+// ------------------------------------------------------------
+
+model Progress {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+
+  percentComplete Int      @default(0)
+  lastAccessedAt  DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, productId])
+  @@map("progress")
+}
