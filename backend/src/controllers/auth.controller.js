@@ -1,11 +1,6 @@
-const { z } = require("zod");
 const authService = require("../services/auth.service");
+const { registerSchema, loginSchema, changePasswordSchema } = require("../validation/auth.validation");
 const { ok } = require("../utils/apiResponse");
-
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-});
 
 const cookieOptions = (maxAgeMs) => ({
   httpOnly: true,
@@ -15,6 +10,25 @@ const cookieOptions = (maxAgeMs) => ({
   maxAge: maxAgeMs,
   path: "/",
 });
+
+const ACCESS_TOKEN_MAX_AGE_MS = 15 * 60 * 1000;
+const REFRESH_TOKEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function setAuthCookies(res, { accessToken, refreshToken }) {
+  res
+    .cookie("accessToken", accessToken, cookieOptions(ACCESS_TOKEN_MAX_AGE_MS))
+    .cookie("refreshToken", refreshToken, cookieOptions(REFRESH_TOKEN_MAX_AGE_MS));
+}
+
+async function register(req, res, next) {
+  try {
+    const input = registerSchema.parse(req.body);
+    const user = await authService.register(input);
+    return ok(res, { user }, "Account created. You can now log in.", 201);
+  } catch (err) {
+    next(err);
+  }
+}
 
 async function login(req, res, next) {
   try {
@@ -27,10 +41,8 @@ async function login(req, res, next) {
       ipAddress: req.ip,
     });
 
-    res
-      .cookie("accessToken", result.accessToken, cookieOptions(15 * 60 * 1000))
-      .cookie("refreshToken", result.refreshToken, cookieOptions(7 * 24 * 60 * 60 * 1000))
-      .json({ success: true, message: "Login successful", data: { user: result.user } });
+    setAuthCookies(res, result);
+    return ok(res, { user: result.user }, "Login successful");
   } catch (err) {
     next(err);
   }
@@ -44,10 +56,8 @@ async function refresh(req, res, next) {
       ipAddress: req.ip,
     });
 
-    res
-      .cookie("accessToken", result.accessToken, cookieOptions(15 * 60 * 1000))
-      .cookie("refreshToken", result.refreshToken, cookieOptions(7 * 24 * 60 * 60 * 1000))
-      .json({ success: true, message: "Token refreshed", data: { user: result.user } });
+    setAuthCookies(res, result);
+    return ok(res, { user: result.user }, "Token refreshed");
   } catch (err) {
     next(err);
   }
@@ -58,8 +68,8 @@ async function logout(req, res, next) {
     await authService.logout({ refreshToken: req.cookies?.refreshToken });
     res
       .clearCookie("accessToken", { path: "/" })
-      .clearCookie("refreshToken", { path: "/" })
-      .json({ success: true, message: "Logged out" });
+      .clearCookie("refreshToken", { path: "/" });
+    return ok(res, null, "Logged out");
   } catch (err) {
     next(err);
   }
@@ -73,4 +83,14 @@ async function me(req, res, next) {
   }
 }
 
-module.exports = { login, refresh, logout, me };
+async function changePassword(req, res, next) {
+  try {
+    const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+    await authService.changePassword({ userId: req.user.id, currentPassword, newPassword });
+    return ok(res, null, "Password changed. Please log in again on other devices.");
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { register, login, refresh, logout, me, changePassword };

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Zap, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -143,6 +143,11 @@ export default function Login() {
 
           <p className="mt-6 text-center text-xs text-navy-400">
             Access is provisioned by your platform or college administrator.
+            <br />
+            New here?{" "}
+            <Link to="/register" className="font-semibold text-navy hover:text-gold-600">
+              Create an account
+            </Link>
           </p>
         </div>
       </div>
