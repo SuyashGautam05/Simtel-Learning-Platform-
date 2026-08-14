@@ -33,9 +33,10 @@ enum AccountStatus {
 }
 
 enum ProductStatus {
-  DRAFT // not yet released, hidden from catalog
-  ACTIVE // available, purchasable/assignable
-  DEPRECATED // no longer sold, existing access still honored
+  DRAFT // created but not yet released, hidden from every non-SUPER_ADMIN view
+  ACTIVE // available, visible in the catalog, assignable via product keys
+  INACTIVE // temporarily deactivated by a SUPER_ADMIN — hidden from ADMIN/USER, existing access unaffected
+  ARCHIVED // permanently retired (soft-deleted) — hidden everywhere except SUPER_ADMIN's admin view
 }
 
 enum ProductKeyStatus {
@@ -151,12 +152,15 @@ model RefreshToken {
 // ─────────────────────────────────────────────────────────────────────────
 
 model Product {
-  id          String        @id @default(cuid())
-  name        String // "PLC & Industrial Automation"
-  code        String        @unique // "PLC", "ELEC", "EMB" — key prefix source of truth
-  description String?
-  version     String        @default("1.0.0")
-  status      ProductStatus @default(ACTIVE)
+  id           String        @id @default(cuid())
+  name         String
+  code         String        @unique
+  description  String?
+  version      String        @default("1.0.0")
+  status       ProductStatus @default(DRAFT)
+  thumbnailUrl String?
+
+  metadata Json @default("{}")
 
   deletedAt DateTime?
   createdAt DateTime  @default(now())
