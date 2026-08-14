@@ -1,6 +1,5 @@
 const express = require("express");
 const { z } = require("zod");
-const { nanoid } = require("nanoid");
 const prisma = require("../config/db");
 const { requireAuth } = require("../middleware/auth.middleware");
 const { requireRole } = require("../middleware/role.middleware");
@@ -16,11 +15,12 @@ const generateKeysSchema = z.object({
   productCode: z.string().min(2),
   quantity: z.number().int().min(1).max(500).default(1),
   collegeId: z.string().optional(),
+  maxActivations: z.number().int().min(1).max(1000).default(1),
   expiresAt: z.string().datetime().optional(),
 });
 
 function randomSegment() {
-  return nanoid(4).toUpperCase().replace(/[^A-Z0-9]/g, "X");
+  return Math.random().toString(36).slice(2, 6).toUpperCase();
 }
 
 function buildKeyString(productCode) {
@@ -29,18 +29,24 @@ function buildKeyString(productCode) {
 
 router.post("/product-keys/generate", requireRole("SUPER_ADMIN"), async (req, res, next) => {
   try {
-    const { productCode, quantity, collegeId, expiresAt } = generateKeysSchema.parse(req.body);
+    const { productCode, quantity, collegeId, maxActivations, expiresAt } =
+      generateKeysSchema.parse(req.body);
 
-    const product = await prisma.product.findUnique({ where: { code: productCode.toUpperCase() } });
-    if (!product) return res.status(404).json({ success: false, message: "Unknown product code" });
+    const product = await prisma.product.findUnique({
+      where: { code: productCode.toUpperCase() },
+    });
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Unknown product code" });
+    }
 
     const keys = await prisma.$transaction(
       Array.from({ length: quantity }).map(() =>
         prisma.productKey.create({
           data: {
-            keyString: buildKeyString(product.code),
+            key: buildKeyString(product.code),
             productId: product.id,
             collegeId: collegeId || null,
+            maxActivations,
             expiresAt: expiresAt ? new Date(expiresAt) : null,
             generatedByUserId: req.user.id,
           },
@@ -54,58 +60,103 @@ router.post("/product-keys/generate", requireRole("SUPER_ADMIN"), async (req, re
   }
 });
 
-// ---- Assign a key to a student (SUPER_ADMIN or ADMIN of that college)
+// ---- Assign/activate a key for a student (SUPER_ADMIN or ADMIN of that college)
 
 const assignKeySchema = z.object({
-  keyString: z.string(),
+  key: z.string(),
   userId: z.string(),
 });
 
 router.post("/product-keys/assign", requireRole("SUPER_ADMIN", "ADMIN"), async (req, res, next) => {
   try {
-    const { keyString, userId } = assignKeySchema.parse(req.body);
+    const { key, userId } = assignKeySchema.parse(req.body);
 
-    const key = await prisma.productKey.findUnique({ where: { keyString } });
-    if (!key) return res.status(404).json({ success: false, message: "Product key not found" });
-    if (key.status !== "UNUSED") {
-      return res.status(409).json({ success: false, message: `Key is already ${key.status.toLowerCase()}` });
+    const productKey = await prisma.productKey.findUnique({ where: { key } });
+    if (!productKey) {
+      return res.status(404).json({ success: false, message: "Product key not found" });
+    }
+    if (productKey.status === "REVOKED") {
+      return res.status(409).json({ success: false, message: "Key has been revoked" });
+    }
+    if (productKey.status === "EXPIRED") {
+      return res.status(409).json({ success: false, message: "Key has expired" });
+    }
+    if (productKey.activationsCount >= productKey.maxActivations) {
+      return res.status(409).json({ success: false, message: "Key has no remaining activations" });
     }
 
     const targetUser = await prisma.user.findUnique({ where: { id: userId } });
-    if (!targetUser) return res.status(404).json({ success: false, message: "User not found" });
-
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
     if (req.user.role === "ADMIN" && targetUser.collegeId !== req.user.collegeId) {
-      return res.status(403).json({ success: false, message: "You can only assign keys to students in your own college" });
+      return res
+        .status(403)
+        .json({ success: false, message: "You can only assign keys to students in your own college" });
     }
 
-    const updated = await prisma.productKey.update({
-      where: { id: key.id },
-      data: { status: "ASSIGNED", assignedToUserId: userId, assignedAt: new Date() },
+    const existingAccess = await prisma.userProductAccess.findUnique({
+      where: { userId_productId: { userId, productId: productKey.productId } },
     });
+    if (existingAccess && existingAccess.status === "ACTIVE") {
+      return res
+        .status(409)
+        .json({ success: false, message: "This user already has active access to that module" });
+    }
 
-    return ok(res, { key: updated }, "Key assigned successfully");
+    const [updatedKey, access] = await prisma.$transaction([
+      prisma.productKey.update({
+        where: { id: productKey.id },
+        data: {
+          activationsCount: { increment: 1 },
+          status:
+            productKey.activationsCount + 1 >= productKey.maxActivations ? "EXHAUSTED" : "ACTIVE",
+          activatedAt: productKey.activatedAt ?? new Date(),
+          activatedByUserId: productKey.activatedByUserId ?? userId,
+        },
+      }),
+      prisma.userProductAccess.upsert({
+        where: { userId_productId: { userId, productId: productKey.productId } },
+        update: { status: "ACTIVE", productKeyId: productKey.id, activatedAt: new Date(), expiresAt: productKey.expiresAt },
+        create: {
+          userId,
+          productId: productKey.productId,
+          productKeyId: productKey.id,
+          status: "ACTIVE",
+          expiresAt: productKey.expiresAt,
+        },
+      }),
+    ]);
+
+    return ok(res, { key: updatedKey, access }, "Key assigned and access granted");
   } catch (err) {
     next(err);
   }
 });
 
-// ---- Revoke a key -----------------------------------------------------
+// ---- Revoke a user's access (SUPER_ADMIN or ADMIN of that college) ---
 
-router.post("/product-keys/:id/revoke", requireRole("SUPER_ADMIN", "ADMIN"), async (req, res, next) => {
+const revokeAccessSchema = z.object({
+  userId: z.string(),
+  productId: z.string(),
+});
+
+router.post("/product-access/revoke", requireRole("SUPER_ADMIN", "ADMIN"), async (req, res, next) => {
   try {
-    const key = await prisma.productKey.findUnique({ where: { id: req.params.id } });
-    if (!key) return res.status(404).json({ success: false, message: "Key not found" });
+    const { userId, productId } = revokeAccessSchema.parse(req.body);
 
-    if (req.user.role === "ADMIN" && key.collegeId !== req.user.collegeId) {
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!targetUser) return res.status(404).json({ success: false, message: "User not found" });
+    if (req.user.role === "ADMIN" && targetUser.collegeId !== req.user.collegeId) {
       return res.status(403).json({ success: false, message: "Not permitted" });
     }
 
-    const updated = await prisma.productKey.update({
-      where: { id: key.id },
+    const access = await prisma.userProductAccess.update({
+      where: { userId_productId: { userId, productId } },
       data: { status: "REVOKED" },
     });
 
-    return ok(res, { key: updated }, "Key revoked");
+    return ok(res, { access }, "Access revoked");
   } catch (err) {
     next(err);
   }
@@ -115,13 +166,13 @@ router.post("/product-keys/:id/revoke", requireRole("SUPER_ADMIN", "ADMIN"), asy
 
 router.get("/stats", requireRole("SUPER_ADMIN"), async (req, res, next) => {
   try {
-    const [colleges, users, products, activeKeys] = await Promise.all([
-      prisma.college.count(),
-      prisma.user.count({ where: { role: "USER" } }),
-      prisma.product.count({ where: { isActive: true } }),
-      prisma.productKey.count({ where: { status: "ASSIGNED" } }),
+    const [colleges, students, products, activeAccessGrants] = await Promise.all([
+      prisma.college.count({ where: { deletedAt: null } }),
+      prisma.user.count({ where: { role: "USER", deletedAt: null } }),
+      prisma.product.count({ where: { status: "ACTIVE", deletedAt: null } }),
+      prisma.userProductAccess.count({ where: { status: "ACTIVE" } }),
     ]);
-    return ok(res, { colleges, students: users, activeModules: products, activeKeys });
+    return ok(res, { colleges, students, activeModules: products, activeAccessGrants });
   } catch (err) {
     next(err);
   }

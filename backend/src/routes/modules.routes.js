@@ -9,26 +9,28 @@ const router = express.Router();
 /**
  * GET /api/modules
  * Returns every active Product, flagged with whether the logged-in
- * user currently holds a valid key for it. This powers the "Module
- * Library" screen (locked vs unlocked cards).
+ * user currently holds a valid UserProductAccess row for it. Powers
+ * the "Module Library" screen (locked vs unlocked cards).
  */
 router.get("/", requireAuth, async (req, res, next) => {
   try {
-    const products = await prisma.product.findMany({ where: { isActive: true } });
+    const products = await prisma.product.findMany({
+      where: { status: "ACTIVE", deletedAt: null },
+    });
 
     let unlockedIds = new Set();
     if (req.user.role === "SUPER_ADMIN") {
       unlockedIds = new Set(products.map((p) => p.id));
     } else if (req.user.role === "USER") {
-      const keys = await prisma.productKey.findMany({
+      const access = await prisma.userProductAccess.findMany({
         where: {
-          assignedToUserId: req.user.id,
-          status: "ASSIGNED",
+          userId: req.user.id,
+          status: "ACTIVE",
           OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
         select: { productId: true },
       });
-      unlockedIds = new Set(keys.map((k) => k.productId));
+      unlockedIds = new Set(access.map((a) => a.productId));
     }
 
     const payload = products.map((p) => ({ ...p, unlocked: unlockedIds.has(p.id) }));
@@ -44,7 +46,6 @@ router.get("/", requireAuth, async (req, res, next) => {
  * required:
  *
  *   router.get("/plc/theory", requireAuth, requireModuleAccess("PLC"), handler)
- *   router.get("/plc/simulations", requireAuth, requireModuleAccess("PLC"), handler)
  */
 router.get(
   "/:code/theory",

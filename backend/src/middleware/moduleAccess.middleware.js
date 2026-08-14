@@ -4,17 +4,12 @@ const prisma = require("../config/db");
 /**
  * requireModuleAccess(productCode)
  * -----------------------------------------------------------------
- * This is the ONE gate every module route passes through.
- *
- * A user (student) may access a module's theory/simulation/experiment
- * routes only if they hold an ASSIGNED, non-expired ProductKey for
- * that Product. SUPER_ADMIN always passes (platform owner access).
- * ADMIN passes for read-only/reporting purposes on their own college's
- * data (adjust per-route as needed) but does not "consume" a key.
- *
- * Adding a new module (e.g. "DSP") never requires touching this file —
- * you just call requireModuleAccess("DSP") on that module's routes,
- * and make sure a Product row with code "DSP" exists.
+ * The one gate every module route passes through. A student may access
+ * a module's theory/simulation/experiment routes only if they hold an
+ * ACTIVE, non-expired UserProductAccess row for that Product.
+ * SUPER_ADMIN always passes. Adding a new module never requires touching
+ * this file — call requireModuleAccess("DSP") on that module's routes and
+ * make sure a Product row with code "DSP" exists.
  * -----------------------------------------------------------------
  */
 function requireModuleAccess(productCode) {
@@ -26,33 +21,32 @@ function requireModuleAccess(productCode) {
         where: { code: productCode },
       });
 
-      if (!product || !product.isActive) {
+      if (!product || product.status !== "ACTIVE" || product.deletedAt) {
         throw new ApiError(404, `Module "${productCode}" is not available`);
       }
 
       if (req.user.role === "ADMIN") {
         // Admins get visibility, not the student experience itself.
-        // Tighten/loosen this per your product decisions.
         return next();
       }
 
-      const activeKey = await prisma.productKey.findFirst({
-        where: {
-          productId: product.id,
-          assignedToUserId: req.user.id,
-          status: "ASSIGNED",
-          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-        },
+      const access = await prisma.userProductAccess.findUnique({
+        where: { userId_productId: { userId: req.user.id, productId: product.id } },
       });
 
-      if (!activeKey) {
+      const isValid =
+        access &&
+        access.status === "ACTIVE" &&
+        (!access.expiresAt || access.expiresAt > new Date());
+
+      if (!isValid) {
         throw new ApiError(
           403,
           `You do not have an active license for the "${product.name}" module`
         );
       }
 
-      req.moduleAccess = { product, productKey: activeKey };
+      req.moduleAccess = { product, access };
       next();
     } catch (err) {
       next(err instanceof ApiError ? err : new ApiError(500, "Module access check failed"));

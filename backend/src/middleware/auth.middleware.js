@@ -25,10 +25,10 @@ async function requireAuth(req, res, next) {
     // is rejected immediately, not just when their token expires.
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, role: true, status: true, collegeId: true, email: true, name: true },
+      select: { id: true, role: true, status: true, collegeId: true, email: true, name: true, deletedAt: true },
     });
 
-    if (!user || user.status !== "ACTIVE") {
+    if (!user || user.status !== "ACTIVE" || user.deletedAt) {
       throw new ApiError(401, "Account is not active");
     }
 
