@@ -1,7 +1,10 @@
-// ============================================================
+// ============================================================================
 // Simtel Learning Platform — Database Schema
 // PostgreSQL + Prisma ORM
-// ============================================================
+//
+// Scope: database layer only. No API/business logic lives here — this file
+// is the single source of truth for the relational model.
+// ============================================================================
 
 generator client {
   provider = "prisma-client-js"
@@ -12,9 +15,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
 // ENUMS
-// ------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
 
 enum Role {
   SUPER_ADMIN
@@ -22,77 +25,111 @@ enum Role {
   USER
 }
 
-enum UserStatus {
+/// Generic lifecycle status for accounts (users & colleges).
+enum AccountStatus {
   ACTIVE
   SUSPENDED
   PENDING
 }
 
-enum ProductKeyStatus {
-  UNUSED    // generated, not yet assigned
-  ASSIGNED  // currently active on a user
-  REVOKED   // manually revoked by an admin
-  EXPIRED   // past expiry date
+enum ProductStatus {
+  DRAFT // not yet released, hidden from catalog
+  ACTIVE // available, purchasable/assignable
+  DEPRECATED // no longer sold, existing access still honored
 }
 
-// ------------------------------------------------------------
+enum ProductKeyStatus {
+  UNUSED // generated, never activated
+  ACTIVE // activated at least once, currently valid
+  EXPIRED // past expiresAt
+  REVOKED // manually invalidated by an admin
+  EXHAUSTED // activationsCount reached maxActivations
+}
+
+enum AccessStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum LicenseStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // COLLEGE
-// ------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
 
 model College {
-  id        String   @id @default(cuid())
-  name      String
-  code      String   @unique // short college code, e.g. "LNCT001"
-  address   String?
-  isActive  Boolean  @default(true)
+  id      String        @id @default(cuid())
+  name    String
+  code    String        @unique // short institutional code, e.g. "LNCT-BPL"
+  email   String?       @unique
+  phone   String?
+  address String?
+  status  AccountStatus @default(ACTIVE)
+
+  // Soft delete: rows are never hard-deleted so audit/history stays intact.
+  deletedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users       User[]
-  productKeys ProductKey[]
+  users           User[]
+  productKeys     ProductKey[]
+  productLicenses CollegeProductLicense[]
 
+  @@index([status])
+  @@index([deletedAt])
   @@map("colleges")
 }
 
-// ------------------------------------------------------------
-// USER (Super Admin / Admin / Student)
-// ------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────────────────
 
 model User {
-  id           String     @id @default(cuid())
+  id           String        @id @default(cuid())
   name         String
-  email        String     @unique
+  email        String        @unique
   passwordHash String
-  role         Role       @default(USER)
-  status       UserStatus @default(ACTIVE)
+  role         Role          @default(USER)
+  status       AccountStatus @default(ACTIVE)
 
-  // A College Admin or Student belongs to a college.
-  // A Super Admin has no college (platform-level).
+  // SUPER_ADMIN: null. ADMIN / USER: their institution.
   collegeId String?
-  college   College? @relation(fields: [collegeId], references: [id])
+  college   College? @relation(fields: [collegeId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // Soft delete — preserves FK history (product access, generated keys, etc).
+  deletedAt DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   lastLoginAt DateTime?
 
-  // Product keys assigned to this user (their module authorizations)
-  productKeys ProductKey[] @relation("AssignedKeys")
+  // Module authorizations this user currently/previously holds.
+  productAccess UserProductAccess[]
 
-  // Product keys this user (admin/super admin) generated
-  generatedKeys ProductKey[] @relation("GeneratedKeys")
+  // Keys this user (a SUPER_ADMIN, typically) generated.
+  generatedProductKeys ProductKey[] @relation("KeyGeneratedBy")
+
+  // Keys this user personally activated (student redeeming a key).
+  activatedProductKeys ProductKey[] @relation("KeyActivatedBy")
 
   refreshTokens RefreshToken[]
-  progress      Progress[]
+  auditLogs     AuditLog[]
 
   @@index([collegeId])
   @@index([role])
+  @@index([status])
+  @@index([deletedAt])
   @@map("users")
 }
 
-// ------------------------------------------------------------
-// REFRESH TOKENS (rotation-based session security)
-// ------------------------------------------------------------
-
+// Kept from the auth foundation: rotating refresh-token sessions.
+// (Database-layer only — no route logic here.)
 model RefreshToken {
   id        String   @id @default(cuid())
   userId    String
@@ -108,78 +145,184 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
-// ------------------------------------------------------------
-// PRODUCT (a learning module — e.g. PLC, Electrical, Embedded)
-// New modules are added as ROWS here, never as new code paths.
-// ------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// PRODUCT (a learning module: PLC, Electrical, Embedded, DSP, ...)
+// New modules are added as ROWS — never as schema/code changes.
+// ─────────────────────────────────────────────────────────────────────────
 
 model Product {
-  id          String   @id @default(cuid())
-  code        String   @unique // "PLC", "ELEC", "EMB", "DSP", ...
-  name        String   // "PLC & Industrial Automation"
+  id          String        @id @default(cuid())
+  name        String // "PLC & Industrial Automation"
+  code        String        @unique // "PLC", "ELEC", "EMB" — key prefix source of truth
   description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  version     String        @default("1.0.0")
+  status      ProductStatus @default(ACTIVE)
 
-  productKeys ProductKey[]
-  progress    Progress[]
-
-  @@map("products")
-}
-
-// ------------------------------------------------------------
-// PRODUCT KEY (module license — belongs to exactly ONE product)
-// Format enforced at generation time: CODE-XXXX-XXXX-XXXX
-// ------------------------------------------------------------
-
-model ProductKey {
-  id        String           @id @default(cuid())
-  keyString String           @unique // e.g. "PLC-4F2A-9K1B-77QX"
-  status    ProductKeyStatus @default(UNUSED)
-
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-
-  // A key is generated for/within a college's pool (optional, for bulk licensing)
-  collegeId String?
-  college   College? @relation(fields: [collegeId], references: [id])
-
-  // Once assigned, this is the student who owns the authorization
-  assignedToUserId String?
-  assignedToUser   User?   @relation("AssignedKeys", fields: [assignedToUserId], references: [id])
-  assignedAt       DateTime?
-
-  // Who generated this key (always a Super Admin)
-  generatedByUserId String
-  generatedByUser   User   @relation("GeneratedKeys", fields: [generatedByUserId], references: [id])
-
-  expiresAt DateTime? // null = perpetual license
+  deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  productKeys     ProductKey[]
+  userAccess      UserProductAccess[]
+  collegeLicenses CollegeProductLicense[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("products")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PRODUCT_KEY
+// A key belongs to EXACTLY ONE product (enforced by the required, non-null
+// productId FK below — there is no join table here on purpose). Activating
+// a PLC key can never grant Electrical/Embedded/DSP access.
+// ─────────────────────────────────────────────────────────────────────────
+
+model ProductKey {
+  id     String           @id @default(cuid())
+  key    String           @unique // e.g. "PLC-4F2A-9K1B-77QX"
+  status ProductKeyStatus @default(UNUSED)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  // Optional: key was generated as part of a college's bulk purchase pool,
+  // before being handed out to an individual student.
+  collegeId String?
+  college   College? @relation(fields: [collegeId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // Support both "one key, one student, reactivate on N devices" and
+  // "one pool key, redeemable by N students" licensing models.
+  maxActivations   Int @default(1)
+  activationsCount Int @default(0)
+
+  generatedByUserId String
+  generatedByUser   User   @relation("KeyGeneratedBy", fields: [generatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  // First time this key was ever redeemed (informational; individual
+  // redemptions are tracked per-row in UserProductAccess).
+  activatedAt       DateTime?
+  activatedByUserId String?
+  activatedByUser   User?     @relation("KeyActivatedBy", fields: [activatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  expiresAt DateTime? // null = perpetual license
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userAccess UserProductAccess[]
+
   @@index([productId])
-  @@index([assignedToUserId])
   @@index([collegeId])
+  @@index([status])
+  @@index([expiresAt])
   @@map("product_keys")
 }
 
-// ------------------------------------------------------------
-// PROGRESS (per-user, per-module progress tracking — foundation only)
-// ------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// USER_PRODUCT_ACCESS
+// The actual authorization record checked at request time: "does this user
+// currently have access to this product". One row per (user, product) —
+// renewing/revoking updates the row rather than creating parallel rows,
+// so "current access" is always a single, unambiguous lookup.
+// ─────────────────────────────────────────────────────────────────────────
 
-model Progress {
-  id        String   @id @default(cuid())
+model UserProductAccess {
+  id String @id @default(cuid())
+
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   productId String
-  product   Product  @relation(fields: [productId], references: [id])
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  percentComplete Int      @default(0)
-  lastAccessedAt  DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  // Nullable: access can be granted directly by an admin without a key
+  // (e.g. promotional access), but when present it must reference a key
+  // for this SAME productId — enforced at the application/service layer
+  // since Prisma cannot express cross-column FK constraints.
+  productKeyId String?
+  productKey   ProductKey? @relation(fields: [productKeyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
+  status AccessStatus @default(ACTIVE)
+
+  activatedAt DateTime  @default(now())
+  expiresAt   DateTime? // null = perpetual (until revoked)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // A user has exactly one current access record per product.
   @@unique([userId, productId])
-  @@map("progress")
+  @@index([userId])
+  @@index([productId])
+  @@index([productKeyId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("user_product_access")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// COLLEGE_PRODUCT_LICENSE
+// Site-wide license: a college purchases N seats of a product. Seats are
+// consumed as individual ProductKeys (scoped to this college) get assigned
+// to students. This is the "bulk" counterpart to a single ProductKey.
+// ─────────────────────────────────────────────────────────────────────────
+
+model CollegeProductLicense {
+  id String @id @default(cuid())
+
+  collegeId String
+  college   College @relation(fields: [collegeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  totalSeats Int
+  usedSeats  Int           @default(0)
+  status     LicenseStatus @default(ACTIVE)
+
+  startsAt  DateTime  @default(now())
+  expiresAt DateTime? // null = perpetual site license
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One license record per college per product; renew by updating it
+  // (or expiring it and creating a new term) rather than duplicating rows.
+  @@unique([collegeId, productId])
+  @@index([collegeId])
+  @@index([productId])
+  @@index([status])
+  @@map("college_product_licenses")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AUDIT_LOG
+// Append-only record of privileged actions (college/admin/user/product
+// management). SUPER_ADMIN-only to read. Written by the service layer,
+// never by the client directly.
+// ─────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  // Nullable + SetNull so a deleted actor never blocks audit history from
+  // being retained (the audit record itself still carries actorEmail/Role
+  // as a point-in-time snapshot, independent of the live User row).
+  actorUserId String?
+  actor       User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  actorEmail  String // snapshot at time of action, survives actor deletion
+  actorRole   Role // snapshot at time of action
+
+  action     String // e.g. "college.create", "user.deactivate", "product_key.revoke"
+  targetType String // e.g. "College", "User", "Product", "ProductKey"
+  targetId   String?
+
+  metadata Json? // small, non-sensitive context (never store secrets/passwords here)
+
+  createdAt DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

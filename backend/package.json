@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "node prisma/seed.js"
+    "prisma:seed": "node prisma/seed.js",
+     "test": "node --test tests/rbac.test.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -32,7 +33,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.4",
-    "prisma": "^5.19.1"
+    "prisma": "^5.19.1",
+     "supertest": "^7.0.0"
   },
   "engines": {
     "node": ">=18.0.0"

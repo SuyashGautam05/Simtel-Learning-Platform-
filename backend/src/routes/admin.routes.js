@@ -2,7 +2,7 @@ const express = require("express");
 const { z } = require("zod");
 const prisma = require("../config/db");
 const { requireAuth } = require("../middleware/auth.middleware");
-const { requireRole } = require("../middleware/role.middleware");
+const { requireSuperAdmin, requireAdmin } = require("../middleware/role.middleware");
 const { ok } = require("../utils/apiResponse");
 
 const router = express.Router();
@@ -27,7 +27,7 @@ function buildKeyString(productCode) {
   return `${productCode}-${randomSegment()}-${randomSegment()}-${randomSegment()}`;
 }
 
-router.post("/product-keys/generate", requireRole("SUPER_ADMIN"), async (req, res, next) => {
+router.post("/product-keys/generate", requireSuperAdmin(), async (req, res, next) => {
   try {
     const { productCode, quantity, collegeId, maxActivations, expiresAt } =
       generateKeysSchema.parse(req.body);
@@ -67,7 +67,7 @@ const assignKeySchema = z.object({
   userId: z.string(),
 });
 
-router.post("/product-keys/assign", requireRole("SUPER_ADMIN", "ADMIN"), async (req, res, next) => {
+router.post("/product-keys/assign", requireAdmin(), async (req, res, next) => {
   try {
     const { key, userId } = assignKeySchema.parse(req.body);
 
@@ -141,7 +141,7 @@ const revokeAccessSchema = z.object({
   productId: z.string(),
 });
 
-router.post("/product-access/revoke", requireRole("SUPER_ADMIN", "ADMIN"), async (req, res, next) => {
+router.post("/product-access/revoke", requireAdmin(), async (req, res, next) => {
   try {
     const { userId, productId } = revokeAccessSchema.parse(req.body);
 
@@ -164,7 +164,7 @@ router.post("/product-access/revoke", requireRole("SUPER_ADMIN", "ADMIN"), async
 
 // ---- Platform statistics (SUPER_ADMIN) --------------------------------
 
-router.get("/stats", requireRole("SUPER_ADMIN"), async (req, res, next) => {
+router.get("/stats", requireSuperAdmin(), async (req, res, next) => {
   try {
     const [colleges, students, products, activeAccessGrants] = await Promise.all([
       prisma.college.count({ where: { deletedAt: null } }),
