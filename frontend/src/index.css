@@ -41,6 +41,9 @@ body {
   .btn-accent {
     @apply inline-flex items-center justify-center gap-2 rounded-lg bg-gold px-5 py-2.5 text-sm font-semibold text-navy-900 transition-all duration-200 hover:bg-gold-500 hover:shadow-card-hover active:scale-[0.98];
   }
+  .btn-secondary-outline {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg border border-navy-200 bg-white px-5 py-2.5 text-sm font-semibold text-navy-700 transition-all duration-200 hover:border-navy-300 hover:bg-navy-50 active:scale-[0.98];
+}
   .card {
     @apply rounded-2xl border border-navy-100 bg-white shadow-card transition-shadow duration-300 hover:shadow-card-hover;
   }

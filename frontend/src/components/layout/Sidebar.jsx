@@ -17,6 +17,7 @@ const studentLinks = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/my-learning", label: "My Learning", icon: GraduationCap },
   { to: "/modules", label: "Modules", icon: Library },
+  { to: "/activate", label: "Activate Product", icon: KeyRound },
   { to: "/progress", label: "Progress", icon: BarChart3 },
   { to: "/profile", label: "Profile", icon: User },
 ];
