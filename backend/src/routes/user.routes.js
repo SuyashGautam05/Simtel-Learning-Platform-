@@ -30,6 +30,22 @@ router.patch("/:userId", requireAdmin(), requireTargetUserInScope(), userControl
 router.post("/:userId/activate", requireAdmin(), requireTargetUserInScope(), userController.activate);
 router.post("/:userId/deactivate", requireAdmin(), requireTargetUserInScope(), userController.deactivate);
 
+// Reset a student's password — the "secure workflow" from the College
+// Admin spec: generates a random temp password server-side (never
+// chosen by the admin), returns it once, revokes existing sessions.
+// Tenant-scoped by the same requireTargetUserInScope gate as everything
+// else here — an ADMIN can never reset a password outside their college.
+router.post(
+  "/:userId/reset-password",
+  requireAdmin(),
+  requireTargetUserInScope(),
+  userController.resetPassword
+);
+
+// A student's module authorizations — the "view student progress" data
+// that actually exists today (no per-lesson Progress model yet).
+router.get("/:userId/access", requireAdmin(), requireTargetUserInScope(), userController.getAccess);
+
 // Hard(soft) delete is SUPER_ADMIN only — an ADMIN can deactivate a
 // student but not erase the account.
 router.delete("/:userId", requireSuperAdmin(), requireTargetUserInScope(), userController.remove);

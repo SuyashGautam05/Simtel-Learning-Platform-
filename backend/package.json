@@ -12,7 +12,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "prisma:seed": "node prisma/seed.js",
-    "test": "node --test tests/rbac.test.js tests/productKey.test.js tests/moduleAccess.test.js"
+    "test": "node --test tests/rbac.test.js tests/productKey.test.js tests/moduleAccess.test.js tests/collegeAdmin.test.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

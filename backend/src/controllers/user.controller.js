@@ -91,4 +91,38 @@ async function updateMe(req, res, next) {
   }
 }
 
-module.exports = { list, create, getOne, update, activate, deactivate, remove, me, updateMe };
+async function resetPassword(req, res, next) {
+  try {
+    const result = await userService.resetPassword(req.user, req.targetUser);
+    return ok(
+      res,
+      result,
+      "Password reset. Share this temporary password with the student securely — it will not be shown again."
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getAccess(req, res, next) {
+  try {
+    const access = await userService.getUserProductAccessList(req.targetUser);
+    return ok(res, { access });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  list,
+  create,
+  getOne,
+  update,
+  activate,
+  deactivate,
+  remove,
+  me,
+  updateMe,
+  resetPassword,
+  getAccess,
+};

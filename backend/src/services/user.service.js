@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const prisma = require("../config/db");
 const { hashPassword } = require("../utils/password");
 const { ApiError } = require("../utils/apiResponse");
@@ -171,6 +172,97 @@ async function updateOwnProfile(requester, input) {
   return sanitizeUser(user);
 }
 
+/**
+ * generateTempPassword
+ * Cryptographically random, not a predictable pattern — built by
+ * construction to satisfy the same complexity rule real user passwords
+ * must meet (one lowercase, one uppercase, one digit, sufficient length),
+ * so the student can log in with it immediately without hitting a
+ * validation error on their own next password change.
+ */
+function generateTempPassword() {
+  const upper = "ABCDEFGHJKMNPQRSTUVWXYZ";
+  const lower = "abcdefghjkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const all = upper + lower + digits;
+
+  const pick = (charset) => charset[crypto.randomInt(0, charset.length)];
+  const required = [pick(upper), pick(lower), pick(digits)];
+  const rest = Array.from({ length: 9 }, () => pick(all));
+
+  // Shuffle so the guaranteed characters aren't always in the same
+  // position (Fisher-Yates, using crypto.randomInt).
+  const chars = [...required, ...rest];
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+/**
+ * resetPassword — the "secure workflow" for an admin resetting a
+ * student's password:
+ *   1. Ownership/tenant scope already enforced by requireTargetUserInScope
+ *      before this ever runs (an ADMIN can only reach their own college's
+ *      students here).
+ *   2. A cryptographically random temporary password is generated —
+ *      never a predictable value, never chosen by the admin.
+ *   3. It's hashed with the same bcrypt path as any other password;
+ *      the raw value exists only in memory for this one response.
+ *   4. Every existing session for that account is revoked, so a
+ *      possibly-compromised session (the reason for the reset, often)
+ *      is force-logged-out immediately.
+ *   5. The action is audit-logged (without the password itself).
+ * The raw temporary password is returned exactly once, the same
+ * one-time-display pattern used for product keys — the admin is
+ * responsible for relaying it to the student out of band.
+ */
+async function resetPassword(requester, targetUser) {
+  const tempPassword = generateTempPassword();
+  const passwordHash = await hashPassword(tempPassword);
+
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: targetUser.id }, data: { passwordHash } }),
+    prisma.refreshToken.updateMany({
+      where: { userId: targetUser.id, revoked: false },
+      data: { revoked: true },
+    }),
+  ]);
+
+  await writeAuditLog({
+    actor: requester,
+    action: "user.password_reset",
+    targetType: "User",
+    targetId: targetUser.id,
+  });
+
+  return { tempPassword };
+}
+
+/**
+ * getUserProductAccessList — a student's module authorizations, for the
+ * "view student progress" admin capability. No per-lesson Progress model
+ * exists yet, so this returns the honest, real thing that does exist:
+ * which modules the student currently has access to, and when they
+ * activated/expire.
+ */
+async function getUserProductAccessList(targetUser) {
+  const access = await prisma.userProductAccess.findMany({
+    where: { userId: targetUser.id },
+    include: { product: true },
+    orderBy: { activatedAt: "desc" },
+  });
+
+  return access.map((a) => ({
+    id: a.id,
+    product: { id: a.product.id, name: a.product.name, code: a.product.code },
+    status: a.status,
+    activatedAt: a.activatedAt,
+    expiresAt: a.expiresAt,
+  }));
+}
+
 module.exports = {
   listUsers,
   createUser,
@@ -178,5 +270,7 @@ module.exports = {
   setUserStatus,
   softDeleteUser,
   updateOwnProfile,
+  resetPassword,
+  getUserProductAccessList,
   sanitizeUser,
 };

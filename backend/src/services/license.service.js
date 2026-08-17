@@ -6,10 +6,22 @@ const prisma = require("../config/db");
  * "VIEW LICENSE USAGE" capability. Read-only: creating/editing a license
  * isn't part of this step's scope, only visibility into what's already
  * provisioned.
+ *
+ * SUPER_ADMIN: any college, optionally filtered.
+ * ADMIN: hard-scoped to their own college — any collegeId in `filters`
+ * is IGNORED for an ADMIN caller, same pattern as user.service.js#listUsers.
  */
-async function listLicenses(filters = {}) {
+async function listLicenses(requester, filters = {}) {
   const where = {};
-  if (filters.collegeId) where.collegeId = filters.collegeId;
+
+  if (requester.role === "SUPER_ADMIN") {
+    if (filters.collegeId) where.collegeId = filters.collegeId;
+  } else if (requester.role === "ADMIN") {
+    where.collegeId = requester.collegeId; // never trust filters.collegeId here
+  } else {
+    where.collegeId = "__none__"; // defense in depth; route already blocks this
+  }
+
   if (filters.productId) where.productId = filters.productId;
   if (filters.status) where.status = filters.status;
 

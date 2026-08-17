@@ -49,4 +49,22 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, create, update, remove };
+async function stats(req, res, next) {
+  try {
+    const data = await collegeService.getCollegeStats(req.params.id);
+    return ok(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function recentActivity(req, res, next) {
+  try {
+    const activity = await collegeService.getCollegeRecentActivity(req.params.id);
+    return ok(res, { activity });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getOne, create, update, remove, stats, recentActivity };

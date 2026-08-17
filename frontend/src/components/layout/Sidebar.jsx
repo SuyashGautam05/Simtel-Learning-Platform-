@@ -26,9 +26,16 @@ const studentLinks = [
   { to: "/profile", label: "Profile", icon: User },
 ];
 
-// College Admin — not built in this step, kept as placeholders for a
-// future ADMIN-facing section.
-const adminLinks = [{ to: "/admin/students", label: "Students", icon: Users }];
+// College Admin gets its own dedicated nav, same reasoning as
+// SUPER_ADMIN below — their job here is managing their college, not the
+// student experience, even though their account can technically still
+// reach student-facing routes.
+const collegeAdminLinks = [
+  { to: "/college-admin", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/college-admin/students", label: "Students", icon: GraduationCap },
+  { to: "/college-admin/modules", label: "Modules", icon: Package },
+  { to: "/profile", label: "Profile", icon: User },
+];
 
 // SUPER_ADMIN gets its own dedicated nav — the platform-owner surface is
 // distinct enough from the student experience that merging them into one
@@ -53,7 +60,7 @@ export default function Sidebar() {
     user?.role === "SUPER_ADMIN"
       ? superAdminLinks
       : user?.role === "ADMIN"
-        ? [...studentLinks, ...adminLinks]
+        ? collegeAdminLinks
         : studentLinks;
 
   return (
@@ -65,7 +72,11 @@ export default function Sidebar() {
         <div>
           <p className="text-sm font-bold leading-tight text-navy-900">Simtel</p>
           <p className="text-[11px] font-medium leading-tight text-navy-400">
-            {user?.role === "SUPER_ADMIN" ? "Platform Owner" : "Learning Platform"}
+            {user?.role === "SUPER_ADMIN"
+              ? "Platform Owner"
+              : user?.role === "ADMIN"
+                ? "College Admin"
+                : "Learning Platform"}
           </p>
         </div>
       </div>
@@ -75,7 +86,7 @@ export default function Sidebar() {
           <NavLink
             key={to}
             to={to}
-            end={to === "/admin"}
+            end={to === "/admin" || to === "/college-admin"}
             className={({ isActive }) =>
               `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                 isActive
@@ -96,6 +107,11 @@ export default function Sidebar() {
             <>
               <p className="font-semibold text-navy">Platform Owner</p>
               <p className="mt-1">Full administrative access.</p>
+            </>
+          ) : user?.role === "ADMIN" ? (
+            <>
+              <p className="font-semibold text-navy">College Admin</p>
+              <p className="mt-1">Managing your college's students and modules.</p>
             </>
           ) : (
             <>

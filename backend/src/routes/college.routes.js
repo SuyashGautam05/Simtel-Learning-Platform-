@@ -26,4 +26,16 @@ router.get(
   collegeController.getOne
 );
 
+// College Admin dashboard data — same tenant gate as GET /:id above.
+router.get(
+  "/:id/stats",
+  requireSameCollegeOrSuperAdmin((req) => req.params.id),
+  collegeController.stats
+);
+router.get(
+  "/:id/recent-activity",
+  requireSameCollegeOrSuperAdmin((req) => req.params.id),
+  collegeController.recentActivity
+);
+
 module.exports = router;

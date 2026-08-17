@@ -19,6 +19,9 @@ import SuperAdminProductKeys from "./pages/admin/SuperAdminProductKeys.jsx";
 import SuperAdminLicenses from "./pages/admin/SuperAdminLicenses.jsx";
 import SuperAdminAuditLogs from "./pages/admin/SuperAdminAuditLogs.jsx";
 import SuperAdminSettings from "./pages/admin/SuperAdminSettings.jsx";
+import CollegeAdminDashboard from "./pages/collegeAdmin/CollegeAdminDashboard.jsx";
+import CollegeAdminStudents from "./pages/collegeAdmin/CollegeAdminStudents.jsx";
+import CollegeAdminModules from "./pages/collegeAdmin/CollegeAdminModules.jsx";
 
 export default function App() {
   return (
@@ -35,6 +38,17 @@ export default function App() {
           <Route path="/activate" element={<ActivateProduct />} />
           <Route path="/progress" element={<Progress />} />
           <Route path="/profile" element={<Profile />} />
+
+          {/* College Admin only — enforced by allowedRoles here AND by
+              requireAdmin()/requireTargetUserInScope() tenant checks on
+              every backend route these pages call. This nesting is a UX
+              convenience, not the security boundary — an ADMIN can never
+              reach another college's data no matter what URL they type. */}
+          <Route element={<ProtectedRoute allowedRoles={["ADMIN"]} />}>
+            <Route path="/college-admin" element={<CollegeAdminDashboard />} />
+            <Route path="/college-admin/students" element={<CollegeAdminStudents />} />
+            <Route path="/college-admin/modules" element={<CollegeAdminModules />} />
+          </Route>
 
           {/* Super Admin only — enforced by allowedRoles here AND by
               requireSuperAdmin() on every backend route these pages call.
