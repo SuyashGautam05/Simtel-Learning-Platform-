@@ -3,6 +3,7 @@ const { z } = require("zod");
 const prisma = require("../config/db");
 const { requireAuth } = require("../middleware/auth.middleware");
 const { requireSuperAdmin, requireAdmin } = require("../middleware/role.middleware");
+const { getPlatformStats } = require("../services/platformStats.service");
 const { ok } = require("../utils/apiResponse");
 
 const router = express.Router();
@@ -48,16 +49,13 @@ router.post("/product-access/revoke", requireAdmin(), async (req, res, next) => 
 });
 
 // ---- Platform statistics (SUPER_ADMIN) --------------------------------
+// Never exposed to ADMIN/USER — requireSuperAdmin() is the enforcement,
+// not just hiding the nav link on the frontend.
 
 router.get("/stats", requireSuperAdmin(), async (req, res, next) => {
   try {
-    const [colleges, students, products, activeAccessGrants] = await Promise.all([
-      prisma.college.count({ where: { deletedAt: null } }),
-      prisma.user.count({ where: { role: "USER", deletedAt: null } }),
-      prisma.product.count({ where: { status: "ACTIVE", deletedAt: null } }),
-      prisma.userProductAccess.count({ where: { status: "ACTIVE" } }),
-    ]);
-    return ok(res, { colleges, students, activeModules: products, activeAccessGrants });
+    const stats = await getPlatformStats();
+    return ok(res, stats);
   } catch (err) {
     next(err);
   }

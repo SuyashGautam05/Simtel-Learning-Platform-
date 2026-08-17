@@ -39,3 +39,27 @@ export async function fetchProductExperiments(productId) {
   const { data } = await apiClient.get(`/products/${productId}/experiments`);
   return data.data;
 }
+
+// ---- SUPER_ADMIN-only management (server enforces this — see
+// requireSuperAdmin() on the backend route; these calls simply 403 for
+// any other role) --------------------------------------------------------
+
+export async function createProduct(input) {
+  const { data } = await apiClient.post("/products", input);
+  return data.data.product;
+}
+
+export async function setProductStatus(productId, status) {
+  const { data } = await apiClient.patch(`/products/${productId}/status`, { status });
+  return data.data.product;
+}
+
+export async function archiveProduct(productId) {
+  const { data } = await apiClient.delete(`/products/${productId}`);
+  return data.data.product;
+}
+
+export async function fetchProductStats(productId) {
+  const { data } = await apiClient.get(`/products/${productId}/stats`);
+  return data.data;
+}

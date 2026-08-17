@@ -8,6 +8,7 @@ const auditRoutes = require("./audit.routes");
 const productRoutes = require("./product.routes");
 const productKeyRoutes = require("./productKey.routes");
 const myProductsRoutes = require("./myProducts.routes");
+const licenseRoutes = require("./license.routes");
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ router.use("/audit-logs", auditRoutes);
 router.use("/products", productRoutes);
 router.use("/product-keys", productKeyRoutes);
 router.use("/my-products", myProductsRoutes);
+router.use("/licenses", licenseRoutes);
 
 // Future routes plug in here without touching anything above:
 // router.use("/quizzes", quizRoutes);

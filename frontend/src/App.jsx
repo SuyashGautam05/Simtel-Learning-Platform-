@@ -10,6 +10,15 @@ import ModuleDetail from "./pages/ModuleDetail.jsx";
 import ActivateProduct from "./pages/ActivateProduct.jsx";
 import Progress from "./pages/Progress.jsx";
 import Profile from "./pages/Profile.jsx";
+import SuperAdminDashboard from "./pages/admin/SuperAdminDashboard.jsx";
+import SuperAdminColleges from "./pages/admin/SuperAdminColleges.jsx";
+import SuperAdminAdmins from "./pages/admin/SuperAdminAdmins.jsx";
+import SuperAdminUsers from "./pages/admin/SuperAdminUsers.jsx";
+import SuperAdminProducts from "./pages/admin/SuperAdminProducts.jsx";
+import SuperAdminProductKeys from "./pages/admin/SuperAdminProductKeys.jsx";
+import SuperAdminLicenses from "./pages/admin/SuperAdminLicenses.jsx";
+import SuperAdminAuditLogs from "./pages/admin/SuperAdminAuditLogs.jsx";
+import SuperAdminSettings from "./pages/admin/SuperAdminSettings.jsx";
 
 export default function App() {
   return (
@@ -26,7 +35,21 @@ export default function App() {
           <Route path="/activate" element={<ActivateProduct />} />
           <Route path="/progress" element={<Progress />} />
           <Route path="/profile" element={<Profile />} />
-          {/* Future: /admin/students, /admin/keys, /admin/colleges */}
+
+          {/* Super Admin only — enforced by allowedRoles here AND by
+              requireSuperAdmin() on every backend route these pages call.
+              This nesting is a UX convenience, not the security boundary. */}
+          <Route element={<ProtectedRoute allowedRoles={["SUPER_ADMIN"]} />}>
+            <Route path="/admin" element={<SuperAdminDashboard />} />
+            <Route path="/admin/colleges" element={<SuperAdminColleges />} />
+            <Route path="/admin/admins" element={<SuperAdminAdmins />} />
+            <Route path="/admin/all-users" element={<SuperAdminUsers />} />
+            <Route path="/admin/products" element={<SuperAdminProducts />} />
+            <Route path="/admin/product-keys" element={<SuperAdminProductKeys />} />
+            <Route path="/admin/licenses" element={<SuperAdminLicenses />} />
+            <Route path="/admin/audit-logs" element={<SuperAdminAuditLogs />} />
+            <Route path="/admin/settings" element={<SuperAdminSettings />} />
+          </Route>
         </Route>
       </Route>
 
