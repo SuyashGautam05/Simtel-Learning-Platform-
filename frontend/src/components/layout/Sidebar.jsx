@@ -8,13 +8,17 @@ import {
   KeyRound,
   Settings,
   Zap,
+  GraduationCap,
+  User,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 
 const studentLinks = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/modules", label: "Module Library", icon: Library },
-  { to: "/progress", label: "My Progress", icon: BarChart3 },
+  { to: "/my-learning", label: "My Learning", icon: GraduationCap },
+  { to: "/modules", label: "Modules", icon: Library },
+  { to: "/progress", label: "Progress", icon: BarChart3 },
+  { to: "/profile", label: "Profile", icon: User },
 ];
 
 const adminLinks = [
