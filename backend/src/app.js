@@ -7,6 +7,11 @@ const cookieParser = require("cookie-parser");
 const routes = require("./routes");
 const { notFoundHandler, errorHandler } = require("./middleware/error.middleware");
 
+// Registers every module's content adapter (see src/products/registry.js
+// and src/products/index.js). Must run before any request hits the
+// generic /api/products/:code/content/:section dispatcher.
+require("./products");
+
 const app = express();
 
 app.use(helmet());

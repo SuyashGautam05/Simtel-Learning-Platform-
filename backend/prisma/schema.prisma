@@ -182,10 +182,25 @@ model Product {
 // a PLC key can never grant Electrical/Embedded/DSP access.
 // ─────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────
+// PRODUCT_KEY
+// A key belongs to EXACTLY ONE product (enforced by the required, non-null
+// productId FK below — there is no join table here on purpose). Activating
+// a PLC key can never grant Electrical/Embedded/DSP access.
+// ─────────────────────────────────────────────────────────────────────────
+
 model ProductKey {
   id     String           @id @default(cuid())
-  key    String           @unique // e.g. "PLC-4F2A-9K1B-77QX"
   status ProductKeyStatus @default(UNUSED)
+
+  // The raw key ("PLC-4F2A-9K1B-77QX") is NEVER stored. Only its HMAC
+  // hash is persisted (see utils/productKeyCrypto.js) — this table alone
+  // is useless for forging or replaying a key even in a full DB leak.
+  // keyLastFour + the product's code are enough to reconstruct a masked
+  // display string ("PLC-****-****-77QX") for admin search/UI without
+  // ever retaining the secret.
+  keyHash     String @unique
+  keyLastFour String
 
   productId String
   product   Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -199,6 +214,12 @@ model ProductKey {
   // "one pool key, redeemable by N students" licensing models.
   maxActivations   Int @default(1)
   activationsCount Int @default(0)
+
+  // Free-form activation constraints beyond status/expiry/maxActivations
+  // (e.g. { "allowedEmailDomain": "college.edu" }) — read and enforced by
+  // the activation service; the schema stays stable as new rule types are
+  // added.
+  activationRules Json @default("{}")
 
   generatedByUserId String
   generatedByUser   User   @relation("KeyGeneratedBy", fields: [generatedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -220,6 +241,7 @@ model ProductKey {
   @@index([collegeId])
   @@index([status])
   @@index([expiresAt])
+  @@index([keyLastFour])
   @@map("product_keys")
 }
 

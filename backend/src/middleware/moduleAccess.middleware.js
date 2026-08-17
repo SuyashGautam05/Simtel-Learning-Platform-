@@ -1,5 +1,6 @@
 const { ApiError } = require("../utils/apiResponse");
 const prisma = require("../config/db");
+const { getUserProductAccess, isAccessValid } = require("../services/authorization.service");
 
 /**
  * requireModuleAccess(productCode)
@@ -13,9 +14,28 @@ const prisma = require("../config/db");
  * -----------------------------------------------------------------
  */
 function requireModuleAccess(productCode) {
+  return requireModuleAccessDynamic(() => productCode);
+}
+
+/**
+ * requireModuleAccessDynamic(resolveCode)
+ * Same checks as requireModuleAccess, but the product code is resolved
+ * from the request at call time (e.g. a route param) instead of being
+ * fixed at route-definition time. This is what the generic
+ * /api/products/:code/content/:section dispatcher uses — one route
+ * definition serves every module, so the code can't be hardcoded per call.
+ */
+function requireModuleAccessDynamic(resolveCode) {
   return async (req, res, next) => {
     try {
-      if (req.user.role === "SUPER_ADMIN") return next();
+      const productCode = String(resolveCode(req)).toUpperCase();
+
+      if (req.user.role === "SUPER_ADMIN") {
+        const product = await prisma.product.findUnique({ where: { code: productCode } });
+        if (!product) throw new ApiError(404, `Module "${productCode}" is not available`);
+        req.moduleAccess = { product, access: null };
+        return next();
+      }
 
       const product = await prisma.product.findUnique({
         where: { code: productCode },
@@ -27,19 +47,13 @@ function requireModuleAccess(productCode) {
 
       if (req.user.role === "ADMIN") {
         // Admins get visibility, not the student experience itself.
+        req.moduleAccess = { product, access: null };
         return next();
       }
 
-      const access = await prisma.userProductAccess.findUnique({
-        where: { userId_productId: { userId: req.user.id, productId: product.id } },
-      });
+      const access = await getUserProductAccess(req.user.id, product.id);
 
-      const isValid =
-        access &&
-        access.status === "ACTIVE" &&
-        (!access.expiresAt || access.expiresAt > new Date());
-
-      if (!isValid) {
+      if (!isAccessValid(access)) {
         throw new ApiError(
           403,
           `You do not have an active license for the "${product.name}" module`
@@ -54,4 +68,4 @@ function requireModuleAccess(productCode) {
   };
 }
 
-module.exports = { requireModuleAccess };
+module.exports = { requireModuleAccess, requireModuleAccessDynamic };
