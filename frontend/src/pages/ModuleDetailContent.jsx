@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { BookOpen, Cpu, FlaskConical } from "lucide-react";
+import { useParams, useNavigate } from "react-router-dom";
+import { BookOpen, Cpu, FlaskConical, PlayCircle } from "lucide-react";
 import { fetchProductTopics, fetchProductSimulations, fetchProductExperiments } from "../api/products.js";
 import { useProductAccess } from "../hooks/useProductAccess.js";
 import EmptyState from "../components/ui/EmptyState.jsx";
+import SimulatorFrame from "../components/simulators/SimulatorFrame.jsx";
 
-const TABS = [
+const CONTENT_TABS = [
   { key: "topics", label: "Topics", icon: BookOpen, fetcher: fetchProductTopics },
   { key: "simulations", label: "Simulations", icon: Cpu, fetcher: fetchProductSimulations },
   { key: "experiments", label: "Experiments", icon: FlaskConical, fetcher: fetchProductExperiments },
@@ -13,13 +14,25 @@ const TABS = [
 
 export default function ModuleDetailContent() {
   const { productId } = useParams();
+  const navigate = useNavigate();
   const { product } = useProductAccess(productId);
-  const [activeTab, setActiveTab] = useState("topics");
+  // Defaults to the live simulator when one is configured for this module
+  // (product.integrationType === "IFRAME"); falls back to the content
+  // tabs otherwise. See MODULE_INTEGRATION.md.
+  const [activeTab, setActiveTab] = useState(null);
   const [content, setContent] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const hasSimulator = product?.integrationType === "IFRAME" && !!product?.entryPointUrl;
+
   useEffect(() => {
-    const tab = TABS.find((t) => t.key === activeTab);
+    if (product && activeTab === null) {
+      setActiveTab(hasSimulator ? "simulator" : "topics");
+    }
+  }, [product, hasSimulator, activeTab]);
+
+  useEffect(() => {
+    const tab = CONTENT_TABS.find((t) => t.key === activeTab);
     if (!tab || !productId) return;
     setLoading(true);
     tab
@@ -28,6 +41,11 @@ export default function ModuleDetailContent() {
       .catch(() => setContent(null))
       .finally(() => setLoading(false));
   }, [activeTab, productId]);
+
+  const tabs = [
+    ...(hasSimulator ? [{ key: "simulator", label: "Simulator", icon: PlayCircle }] : []),
+    ...CONTENT_TABS,
+  ];
 
   return (
     <div className="space-y-6">
@@ -38,7 +56,7 @@ export default function ModuleDetailContent() {
       </div>
 
       <div className="flex gap-2 border-b border-navy-100">
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
@@ -54,7 +72,9 @@ export default function ModuleDetailContent() {
         ))}
       </div>
 
-      {loading ? (
+      {activeTab === "simulator" ? (
+        <SimulatorFrame productId={productId} onExit={() => navigate("/modules")} />
+      ) : loading ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {[0, 1].map((i) => (
             <div key={i} className="card h-20 animate-pulse bg-navy-50/60" />

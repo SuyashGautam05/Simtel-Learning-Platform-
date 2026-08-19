@@ -1,6 +1,7 @@
 const express = require("express");
 const productController = require("../controllers/product.controller");
 const productAccessController = require("../controllers/productAccess.controller");
+const moduleIntegrationController = require("../controllers/moduleIntegration.controller");
 const { requireAuth } = require("../middleware/auth.middleware");
 const { requireSuperAdmin } = require("../middleware/role.middleware");
 const { requireModuleAccessDynamic } = require("../middleware/moduleAccess.middleware");
@@ -68,6 +69,16 @@ function contentHandler(section) {
 router.get("/:productId/topics", requireProductAccess(), contentHandler("topics"));
 router.get("/:productId/simulations", requireProductAccess(), contentHandler("simulations"));
 router.get("/:productId/experiments", requireProductAccess(), contentHandler("experiments"));
+
+// ---------------------------------------------------------------------------
+// MODULE INTEGRATION (see MODULE_INTEGRATION.md) — the platform ↔ module
+// contract. All three gated by requireProductAccess(): a student without
+// a valid license for this module can't fetch a launch token or read/
+// write its saved state, exactly like every other module-scoped route.
+// ---------------------------------------------------------------------------
+router.get("/:productId/launch", requireProductAccess(), moduleIntegrationController.launch);
+router.get("/:productId/state", requireProductAccess(), moduleIntegrationController.getState);
+router.put("/:productId/state", requireProductAccess(), moduleIntegrationController.putState);
 
 // ---------------------------------------------------------------------------
 // GENERIC CONTENT DISPATCH (code-keyed) — the plug-in point for real

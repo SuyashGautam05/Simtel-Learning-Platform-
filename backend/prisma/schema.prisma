@@ -19,6 +19,17 @@ datasource db {
 // ENUMS
 // ─────────────────────────────────────────────────────────────────────────
 
+/// How the platform loads a module's actual simulation UI. IFRAME is the
+/// default and, for now, the only supported strategy (see
+/// MODULE_INTEGRATION.md for why) — modeled as an enum rather than a
+/// free-text field so a future strategy (e.g. a real microfrontend) can
+/// be added without touching every existing row.
+enum IntegrationType {
+  IFRAME
+  NONE // no interactive simulator wired up yet — falls back to the
+  // theory/topics/simulations/experiments content-listing adapters only
+}
+
 enum Role {
   SUPER_ADMIN
   ADMIN
@@ -121,6 +132,7 @@ model User {
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  simulationStates ModuleSimulationState[]
 
   @@index([collegeId])
   @@index([role])
@@ -153,22 +165,37 @@ model RefreshToken {
 
 model Product {
   id           String        @id @default(cuid())
-  name         String
-  code         String        @unique
+  name         String // "PLC & Industrial Automation"
+  code         String        @unique // "PLC", "ELEC", "EMB" — key prefix source of truth
   description  String?
   version      String        @default("1.0.0")
   status       ProductStatus @default(DRAFT)
-  thumbnailUrl String?
+  thumbnailUrl String? // icon/cover image shown in the module library
 
+  // ---- Module integration (see MODULE_INTEGRATION.md) ------------------
+  // Where the module's OWN, independently-built/hosted bundle lives — a
+  // static HTML file, a small standalone app, whatever it already is.
+  // The platform never inspects what's at this URL; it only iframes it.
+  entryPointUrl   String?
+  integrationType IntegrationType @default(NONE)
+
+  // Free-form structured config for this module — the mechanism that lets
+  // the core platform stay ignorant of any module's internal
+  // implementation (see PRODUCTS.md "modular content architecture").
+  // Never returned to ADMIN/USER callers, only SUPER_ADMIN — may contain
+  // integration details (adapter name, external app URL, feature flags).
+  // Shape is intentionally NOT modeled as columns: every module can carry
+  // different config without a schema migration.
   metadata Json @default("{}")
 
   deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  productKeys     ProductKey[]
-  userAccess      UserProductAccess[]
-  collegeLicenses CollegeProductLicense[]
+  productKeys      ProductKey[]
+  userAccess       UserProductAccess[]
+  collegeLicenses  CollegeProductLicense[]
+  simulationStates ModuleSimulationState[]
 
   @@index([status])
   @@index([deletedAt])
@@ -176,11 +203,36 @@ model Product {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// PRODUCT_KEY
-// A key belongs to EXACTLY ONE product (enforced by the required, non-null
-// productId FK below — there is no join table here on purpose). Activating
-// a PLC key can never grant Electrical/Embedded/DSP access.
+// MODULE_SIMULATION_STATE
+// Opaque per-user, per-module save data. The platform stores and returns
+// this JSON blob verbatim — it never parses or validates its shape,
+// because doing so would mean the platform needs to understand each
+// simulation module's internal state format, which is exactly what this
+// integration architecture avoids. The simulation module itself is the
+// only thing that ever reads this data meaningfully.
 // ─────────────────────────────────────────────────────────────────────────
+
+model ModuleSimulationState {
+  id String @id @default(cuid())
+
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  data Json // opaque to the platform — whatever shape the module sends
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One save slot per user per module. A module wanting multiple save
+  // slots namespaces that itself inside `data` (e.g. { slots: [...] }) —
+  // the platform doesn't need a concept of "slots."
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@map("module_simulation_states")
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // PRODUCT_KEY

@@ -123,6 +123,8 @@ async function createProduct(requester, input, req) {
       description: input.description,
       version: input.version ?? "1.0.0",
       thumbnailUrl: input.thumbnailUrl,
+      entryPointUrl: input.entryPointUrl,
+      integrationType: input.integrationType ?? "NONE",
       metadata: input.metadata ?? {},
       status: input.status ?? "DRAFT",
     },
@@ -154,6 +156,8 @@ async function updateProduct(requester, id, input, req) {
       description: input.description ?? undefined,
       version: input.version ?? undefined,
       thumbnailUrl: input.thumbnailUrl ?? undefined,
+      entryPointUrl: input.entryPointUrl === undefined ? undefined : input.entryPointUrl,
+      integrationType: input.integrationType ?? undefined,
       metadata: input.metadata ?? undefined,
     },
   });

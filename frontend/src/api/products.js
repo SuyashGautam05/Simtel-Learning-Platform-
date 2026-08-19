@@ -49,6 +49,11 @@ export async function createProduct(input) {
   return data.data.product;
 }
 
+export async function updateProduct(productId, input) {
+  const { data } = await apiClient.put(`/products/${productId}`, input);
+  return data.data.product;
+}
+
 export async function setProductStatus(productId, status) {
   const { data } = await apiClient.patch(`/products/${productId}/status`, { status });
   return data.data.product;
