@@ -8,6 +8,8 @@ const {
 } = require("../utils/jwt");
 const { ApiError } = require("../utils/apiResponse");
 const loginAttempts = require("../utils/loginAttempts");
+const { writeAuditLog } = require("../utils/audit");
+const { AUDIT_ACTIONS } = require("../constants/auditActions");
 
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -53,7 +55,7 @@ async function register({ name, email, password, collegeCode }) {
 // ---------------------------------------------------------------------------
 // LOGIN
 // ---------------------------------------------------------------------------
-async function login({ email, password, userAgent, ipAddress }) {
+async function login({ email, password, userAgent, ipAddress, req }) {
   if (loginAttempts.isLocked(email)) {
     const minutes = Math.ceil(loginAttempts.getLockRemainingMs(email) / 60000);
     throw new ApiError(
@@ -66,19 +68,43 @@ async function login({ email, password, userAgent, ipAddress }) {
 
   // Generic error for both "no such user" and "wrong password" — never
   // reveal which one it was, so an attacker can't enumerate valid emails.
-  const genericFailure = () => {
+  // Internally, the audit log DOES record the real reason (in metadata,
+  // never in anything shown to the caller) — that distinction only
+  // matters for the public-facing error message, not for security
+  // monitoring, which benefits from knowing which case actually happened.
+  const genericFailure = async (reason) => {
     loginAttempts.recordFailure(email);
+    await writeAuditLog({
+      actor: user ? { id: user.id, email: user.email, role: user.role } : null,
+      action: AUDIT_ACTIONS.FAILED_LOGIN,
+      targetType: "User",
+      targetId: user?.id,
+      metadata: { attemptedEmail: email, reason },
+      req,
+      ipAddress,
+      userAgent,
+    });
     throw new ApiError(401, "Invalid email or password");
   };
 
-  if (!user || user.deletedAt) return genericFailure();
+  if (!user || user.deletedAt) return genericFailure("no_such_account");
 
   const isValid = await comparePassword(password, user.passwordHash);
-  if (!isValid) return genericFailure();
+  if (!isValid) return genericFailure("wrong_password");
 
   // Password was correct — now it's safe to reveal account-status detail,
   // since the person has already proven they know the credentials.
   if (user.status !== "ACTIVE") {
+    await writeAuditLog({
+      actor: { id: user.id, email: user.email, role: user.role },
+      action: AUDIT_ACTIONS.FAILED_LOGIN,
+      targetType: "User",
+      targetId: user.id,
+      metadata: { reason: "account_not_active" },
+      req,
+      ipAddress,
+      userAgent,
+    });
     throw new ApiError(403, "Your account is not active. Contact your administrator.");
   }
 
@@ -89,6 +115,16 @@ async function login({ email, password, userAgent, ipAddress }) {
   await prisma.user.update({
     where: { id: user.id },
     data: { lastLoginAt: new Date() },
+  });
+
+  await writeAuditLog({
+    actor: { id: user.id, email: user.email, role: user.role },
+    action: AUDIT_ACTIONS.LOGIN,
+    targetType: "User",
+    targetId: user.id,
+    req,
+    ipAddress,
+    userAgent,
   });
 
   return {
@@ -118,6 +154,8 @@ async function issueTokens(user, { userAgent, ipAddress } = {}) {
 
 // ---------------------------------------------------------------------------
 // REFRESH (rotating refresh tokens)
+// Not separately audited — it's a transparent session-continuation
+// mechanic, not a new authentication event; LOGIN already captured that.
 // ---------------------------------------------------------------------------
 async function refresh({ refreshToken, userAgent, ipAddress }) {
   if (!refreshToken) throw new ApiError(401, "Refresh token missing");
@@ -154,18 +192,34 @@ async function refresh({ refreshToken, userAgent, ipAddress }) {
 // ---------------------------------------------------------------------------
 // LOGOUT
 // ---------------------------------------------------------------------------
-async function logout({ refreshToken }) {
+async function logout({ refreshToken, req, ipAddress, userAgent }) {
   if (!refreshToken) return;
   const tokenHash = hashToken(refreshToken);
-  await prisma.refreshToken
+
+  const stored = await prisma.refreshToken
     .update({ where: { tokenHash }, data: { revoked: true } })
     .catch(() => null); // idempotent — ignore if already gone
+
+  if (stored) {
+    const user = await prisma.user.findUnique({ where: { id: stored.userId } });
+    if (user) {
+      await writeAuditLog({
+        actor: { id: user.id, email: user.email, role: user.role },
+        action: AUDIT_ACTIONS.LOGOUT,
+        targetType: "User",
+        targetId: user.id,
+        req,
+        ipAddress,
+        userAgent,
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
-// CHANGE PASSWORD
+// CHANGE PASSWORD (self-service)
 // ---------------------------------------------------------------------------
-async function changePassword({ userId, currentPassword, newPassword }) {
+async function changePassword({ userId, currentPassword, newPassword, req, ipAddress, userAgent }) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || user.deletedAt) throw new ApiError(404, "User not found");
 
@@ -184,6 +238,18 @@ async function changePassword({ userId, currentPassword, newPassword }) {
   await prisma.refreshToken.updateMany({
     where: { userId, revoked: false },
     data: { revoked: true },
+  });
+
+  // Never log the password itself, old or new — only that a change happened.
+  await writeAuditLog({
+    actor: { id: user.id, email: user.email, role: user.role },
+    action: AUDIT_ACTIONS.PASSWORD_CHANGED,
+    targetType: "User",
+    targetId: user.id,
+    metadata: { selfService: true },
+    req,
+    ipAddress,
+    userAgent,
   });
 }
 

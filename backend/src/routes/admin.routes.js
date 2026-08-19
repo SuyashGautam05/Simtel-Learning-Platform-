@@ -4,6 +4,8 @@ const prisma = require("../config/db");
 const { requireAuth } = require("../middleware/auth.middleware");
 const { requireSuperAdmin, requireAdmin } = require("../middleware/role.middleware");
 const { getPlatformStats } = require("../services/platformStats.service");
+const { writeAuditLog } = require("../utils/audit");
+const { AUDIT_ACTIONS } = require("../constants/auditActions");
 const { ok } = require("../utils/apiResponse");
 
 const router = express.Router();
@@ -40,6 +42,15 @@ router.post("/product-access/revoke", requireAdmin(), async (req, res, next) => 
     const access = await prisma.userProductAccess.update({
       where: { userId_productId: { userId, productId } },
       data: { status: "REVOKED" },
+    });
+
+    await writeAuditLog({
+      actor: req.user,
+      action: AUDIT_ACTIONS.PRODUCT_ACCESS_REVOKED,
+      targetType: "User",
+      targetId: userId,
+      metadata: { productId },
+      req,
     });
 
     return ok(res, { access }, "Access revoked");

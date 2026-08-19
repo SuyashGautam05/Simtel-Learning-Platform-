@@ -1,6 +1,7 @@
 const prisma = require("../config/db");
 const { ApiError } = require("../utils/apiResponse");
 const { writeAuditLog } = require("../utils/audit");
+const { AUDIT_ACTIONS } = require("../constants/auditActions");
 
 /**
  * Strips fields a caller isn't entitled to see. `metadata` can carry
@@ -111,7 +112,7 @@ async function getProduct(requester, id) {
 // ---------------------------------------------------------------------------
 // CREATE (SUPER_ADMIN only — enforced at the route)
 // ---------------------------------------------------------------------------
-async function createProduct(requester, input) {
+async function createProduct(requester, input, req) {
   const existing = await prisma.product.findUnique({ where: { code: input.code } });
   if (existing) throw new ApiError(409, "A module with this code already exists");
 
@@ -129,10 +130,11 @@ async function createProduct(requester, input) {
 
   await writeAuditLog({
     actor: requester,
-    action: "product.create",
+    action: AUDIT_ACTIONS.PRODUCT_CREATED,
     targetType: "Product",
     targetId: product.id,
     metadata: { code: product.code, name: product.name },
+    req,
   });
 
   return sanitizeProduct(product, { role: requester.role });
@@ -141,7 +143,7 @@ async function createProduct(requester, input) {
 // ---------------------------------------------------------------------------
 // UPDATE (SUPER_ADMIN only)
 // ---------------------------------------------------------------------------
-async function updateProduct(requester, id, input) {
+async function updateProduct(requester, id, input, req) {
   const existing = await prisma.product.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "Module not found");
 
@@ -158,10 +160,11 @@ async function updateProduct(requester, id, input) {
 
   await writeAuditLog({
     actor: requester,
-    action: "product.update",
+    action: AUDIT_ACTIONS.PRODUCT_UPDATED,
     targetType: "Product",
     targetId: product.id,
     metadata: { changes: Object.keys(input) },
+    req,
   });
 
   return sanitizeProduct(product, { role: requester.role });
@@ -170,7 +173,7 @@ async function updateProduct(requester, id, input) {
 // ---------------------------------------------------------------------------
 // SET STATUS (SUPER_ADMIN only) — activate / deactivate / archive / draft
 // ---------------------------------------------------------------------------
-async function setProductStatus(requester, id, status) {
+async function setProductStatus(requester, id, status, req) {
   const existing = await prisma.product.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "Module not found");
 
@@ -182,12 +185,16 @@ async function setProductStatus(requester, id, status) {
     },
   });
 
+  // Status transitions (activate/deactivate/archive) are all reported as
+  // PRODUCT_UPDATED — the specific transition is in metadata.from/to, no
+  // separate action name per status per the required action list.
   await writeAuditLog({
     actor: requester,
-    action: `product.status.${status.toLowerCase()}`,
+    action: AUDIT_ACTIONS.PRODUCT_UPDATED,
     targetType: "Product",
     targetId: product.id,
     metadata: { from: existing.status, to: status },
+    req,
   });
 
   return sanitizeProduct(product, { role: requester.role });
@@ -200,8 +207,8 @@ async function setProductStatus(requester, id, status) {
 // module was retired from the catalog. It just stops being
 // discoverable/assignable going forward.
 // ---------------------------------------------------------------------------
-async function archiveProduct(requester, id) {
-  return setProductStatus(requester, id, "ARCHIVED");
+async function archiveProduct(requester, id, req) {
+  return setProductStatus(requester, id, "ARCHIVED", req);
 }
 
 // ---------------------------------------------------------------------------

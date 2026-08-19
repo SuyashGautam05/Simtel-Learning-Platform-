@@ -4,12 +4,20 @@ const crypto = require("crypto");
 function signAccessToken(payload) {
   return jwt.sign(payload, process.env.JWT_ACCESS_SECRET, {
     expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || "15m",
+    jwtid: crypto.randomUUID(),
   });
 }
 
 function signRefreshToken(payload) {
+  // A random jti guarantees the signed token string is unique even when
+  // the same user logs in twice within the same second — jsonwebtoken's
+  // `iat` claim only has second-level precision, so without this, two
+  // rapid logins produce a byte-identical JWT, and since refresh tokens
+  // are stored by their SHA-256 hash under a unique constraint
+  // (RefreshToken.tokenHash), that identical token collides on insert.
   return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
     expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
+    jwtid: crypto.randomUUID(),
   });
 }
 

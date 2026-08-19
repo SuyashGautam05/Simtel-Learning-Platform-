@@ -1,6 +1,7 @@
 const prisma = require("../config/db");
 const { ApiError } = require("../utils/apiResponse");
 const { writeAuditLog } = require("../utils/audit");
+const { AUDIT_ACTIONS } = require("../constants/auditActions");
 const { generateProductKey, hashProductKey, lastFour, maskedKey } = require("../utils/productKeyCrypto");
 
 /**
@@ -36,7 +37,7 @@ function toPublicKey(key, product) {
  * returns — if it's lost, the only remedy is revoking and generating a
  * replacement.
  */
-async function generateKeys(requester, input) {
+async function generateKeys(requester, input, req) {
   const product = await prisma.product.findUnique({ where: { code: input.productCode } });
   if (!product || product.deletedAt) {
     throw new ApiError(404, `No module found with code "${input.productCode}"`);
@@ -76,10 +77,11 @@ async function generateKeys(requester, input) {
 
   await writeAuditLog({
     actor: requester,
-    action: "product_key.generate",
+    action: AUDIT_ACTIONS.PRODUCT_KEY_GENERATED,
     targetType: "Product",
     targetId: product.id,
     metadata: { productCode: product.code, quantity: input.quantity, collegeId: input.collegeId },
+    req,
   });
 
   // The one and only place raw keys are ever returned.
@@ -137,7 +139,7 @@ async function getKey(requester, id) {
  * being used again, it doesn't retroactively punish someone who already
  * activated it legitimately.
  */
-async function revokeKey(requester, id) {
+async function revokeKey(requester, id, req) {
   const existing = await prisma.productKey.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "Product key not found");
 
@@ -149,10 +151,11 @@ async function revokeKey(requester, id) {
 
   await writeAuditLog({
     actor: requester,
-    action: "product_key.revoke",
+    action: AUDIT_ACTIONS.PRODUCT_KEY_REVOKED,
     targetType: "ProductKey",
     targetId: key.id,
     metadata: { productCode: key.product.code, previousStatus: existing.status },
+    req,
   });
 
   return toPublicKey(key, key.product);
@@ -164,7 +167,7 @@ async function revokeKey(requester, id) {
  * key that had already been used and was then revoked for cause should
  * not be quietly un-revoked; generate a fresh key instead.
  */
-async function reactivateKey(requester, id) {
+async function reactivateKey(requester, id, req) {
   const existing = await prisma.productKey.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "Product key not found");
   if (existing.status !== "REVOKED") {
@@ -185,10 +188,11 @@ async function reactivateKey(requester, id) {
 
   await writeAuditLog({
     actor: requester,
-    action: "product_key.reactivate",
+    action: AUDIT_ACTIONS.PRODUCT_KEY_REACTIVATED,
     targetType: "ProductKey",
     targetId: key.id,
     metadata: { productCode: key.product.code },
+    req,
   });
 
   return toPublicKey(key, key.product);
@@ -199,7 +203,7 @@ async function reactivateKey(requester, id) {
  * includes a raw key (we don't have them), so this is safe to hand to
  * finance/ops without it being a credential leak on its own.
  */
-async function exportKeys(requester, filters) {
+async function exportKeys(requester, filters, req) {
   const { keys } = await listKeys(requester, { ...filters, page: 1, pageSize: 10000 });
 
   const header = [
@@ -233,9 +237,10 @@ async function exportKeys(requester, filters) {
 
   await writeAuditLog({
     actor: requester,
-    action: "product_key.export",
+    action: AUDIT_ACTIONS.PRODUCT_KEY_EXPORTED,
     targetType: "ProductKey",
     metadata: { count: keys.length, filters },
+    req,
   });
 
   return [header.join(","), ...rows].join("\n");

@@ -13,7 +13,7 @@ const querySchema = z.object({
 async function list(req, res, next) {
   try {
     const filters = querySchema.parse(req.query);
-    const result = await auditService.listAuditLogs(filters);
+    const result = await auditService.listAuditLogs(req.user, filters);
     return ok(res, result);
   } catch (err) {
     next(err);

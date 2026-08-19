@@ -1,6 +1,7 @@
 const prisma = require("../config/db");
 const { ApiError } = require("../utils/apiResponse");
 const { writeAuditLog } = require("../utils/audit");
+const { AUDIT_ACTIONS } = require("../constants/auditActions");
 const { hashProductKey } = require("../utils/productKeyCrypto");
 
 /**
@@ -46,7 +47,7 @@ function checkActivationRules(rules, user) {
  *  10. Record audit information           — writeAuditLog
  * -----------------------------------------------------------------------
  */
-async function activateProductKey(user, rawKey) {
+async function activateProductKey(user, rawKey, req) {
   const keyHash = hashProductKey(rawKey);
 
   // Step 2: validate the key exists at all. Generic message — we don't
@@ -141,12 +142,28 @@ async function activateProductKey(user, rawKey) {
 
   // Step 10: audit trail — who activated what, when, using which key
   // (by id, never by raw value — the raw value doesn't exist here to log).
+  // Two distinct events are recorded, matching the two distinct things
+  // that just happened: the KEY was consumed (a ProductKey lifecycle
+  // event), and ACCESS was granted (a UserProductAccess lifecycle event).
+  // They usually happen together but aren't the same fact — e.g. a
+  // pool key with maxActivations > 1 gets one PRODUCT_KEY_ACTIVATED per
+  // redemption, each producing its own PRODUCT_ACCESS_GRANTED for a
+  // different student.
   await writeAuditLog({
     actor: user,
-    action: "product_key.activate",
+    action: AUDIT_ACTIONS.PRODUCT_KEY_ACTIVATED,
+    targetType: "ProductKey",
+    targetId: key.id,
+    metadata: { productCode: product.code },
+    req,
+  });
+  await writeAuditLog({
+    actor: user,
+    action: AUDIT_ACTIONS.PRODUCT_ACCESS_GRANTED,
     targetType: "Product",
     targetId: product.id,
-    metadata: { productCode: product.code, productKeyId: key.id },
+    metadata: { productCode: product.code, viaProductKeyId: key.id },
+    req,
   });
 
   // Step 8: return the authorized product.

@@ -39,6 +39,7 @@ async function login(req, res, next) {
       password,
       userAgent: req.headers["user-agent"],
       ipAddress: req.ip,
+      req,
     });
 
     setAuthCookies(res, result);
@@ -65,7 +66,12 @@ async function refresh(req, res, next) {
 
 async function logout(req, res, next) {
   try {
-    await authService.logout({ refreshToken: req.cookies?.refreshToken });
+    await authService.logout({
+      refreshToken: req.cookies?.refreshToken,
+      req,
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
     res
       .clearCookie("accessToken", { path: "/" })
       .clearCookie("refreshToken", { path: "/" });
@@ -86,7 +92,14 @@ async function me(req, res, next) {
 async function changePassword(req, res, next) {
   try {
     const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
-    await authService.changePassword({ userId: req.user.id, currentPassword, newPassword });
+    await authService.changePassword({
+      userId: req.user.id,
+      currentPassword,
+      newPassword,
+      req,
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+    });
     return ok(res, null, "Password changed. Please log in again on other devices.");
   } catch (err) {
     next(err);

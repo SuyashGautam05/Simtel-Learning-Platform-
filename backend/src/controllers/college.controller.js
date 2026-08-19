@@ -23,7 +23,7 @@ async function getOne(req, res, next) {
 async function create(req, res, next) {
   try {
     const input = createCollegeSchema.parse(req.body);
-    const college = await collegeService.createCollege(input, req.user);
+    const college = await collegeService.createCollege(input, req.user, req);
     return ok(res, { college }, "College created", 201);
   } catch (err) {
     next(err);
@@ -33,7 +33,7 @@ async function create(req, res, next) {
 async function update(req, res, next) {
   try {
     const input = updateCollegeSchema.parse(req.body);
-    const college = await collegeService.updateCollege(req.params.id, input, req.user);
+    const college = await collegeService.updateCollege(req.params.id, input, req.user, req);
     return ok(res, { college }, "College updated");
   } catch (err) {
     next(err);
@@ -42,7 +42,7 @@ async function update(req, res, next) {
 
 async function remove(req, res, next) {
   try {
-    const college = await collegeService.deleteCollege(req.params.id, req.user);
+    const college = await collegeService.deleteCollege(req.params.id, req.user, req);
     return ok(res, { college }, "College deactivated");
   } catch (err) {
     next(err);

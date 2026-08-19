@@ -3,6 +3,7 @@ const prisma = require("../config/db");
 const { hashPassword } = require("../utils/password");
 const { ApiError } = require("../utils/apiResponse");
 const { writeAuditLog } = require("../utils/audit");
+const { AUDIT_ACTIONS } = require("../constants/auditActions");
 
 function sanitizeUser(user) {
   const { passwordHash, ...safe } = user;
@@ -42,7 +43,7 @@ async function listUsers(requester, filters) {
  * any collegeId/role they attempt to pass is overridden, not merely
  * validated, so a crafted request body can't escalate scope.
  */
-async function createUser(requester, input) {
+async function createUser(requester, input, req) {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) throw new ApiError(409, "A user with this email already exists");
 
@@ -84,10 +85,11 @@ async function createUser(requester, input) {
 
   await writeAuditLog({
     actor: requester,
-    action: role === "ADMIN" ? "admin.create" : "user.create",
+    action: role === "ADMIN" ? AUDIT_ACTIONS.ADMIN_CREATED : AUDIT_ACTIONS.USER_CREATED,
     targetType: "User",
     targetId: user.id,
     metadata: { email: user.email, role: user.role, collegeId: user.collegeId },
+    req,
   });
 
   return sanitizeUser(user);
@@ -99,7 +101,7 @@ async function createUser(requester, input) {
  * (req.targetUser). This function trusts that gate and just applies the
  * permitted field changes.
  */
-async function updateUser(requester, targetUser, input) {
+async function updateUser(requester, targetUser, input, req) {
   const user = await prisma.user.update({
     where: { id: targetUser.id },
     data: { name: input.name ?? targetUser.name },
@@ -107,16 +109,17 @@ async function updateUser(requester, targetUser, input) {
 
   await writeAuditLog({
     actor: requester,
-    action: "user.update",
+    action: AUDIT_ACTIONS.USER_UPDATED,
     targetType: "User",
     targetId: user.id,
     metadata: { changes: Object.keys(input) },
+    req,
   });
 
   return sanitizeUser(user);
 }
 
-async function setUserStatus(requester, targetUser, status) {
+async function setUserStatus(requester, targetUser, status, req) {
   // Extra guard even though requireTargetUserInScope already blocks an
   // ADMIN from targeting non-USER accounts — defense in depth.
   if (requester.role === "ADMIN" && targetUser.role !== "USER") {
@@ -136,15 +139,16 @@ async function setUserStatus(requester, targetUser, status) {
 
   await writeAuditLog({
     actor: requester,
-    action: status === "ACTIVE" ? "user.activate" : "user.deactivate",
+    action: status === "ACTIVE" ? AUDIT_ACTIONS.USER_ACTIVATED : AUDIT_ACTIONS.USER_DEACTIVATED,
     targetType: "User",
     targetId: user.id,
+    req,
   });
 
   return sanitizeUser(user);
 }
 
-async function softDeleteUser(requester, targetUser) {
+async function softDeleteUser(requester, targetUser, req) {
   if (targetUser.role === "SUPER_ADMIN") {
     throw new ApiError(403, "SUPER_ADMIN accounts cannot be deleted through this endpoint");
   }
@@ -156,9 +160,10 @@ async function softDeleteUser(requester, targetUser) {
 
   await writeAuditLog({
     actor: requester,
-    action: "user.delete",
+    action: AUDIT_ACTIONS.USER_DELETED,
     targetType: "User",
     targetId: user.id,
+    req,
   });
 
   return sanitizeUser(user);
@@ -218,7 +223,7 @@ function generateTempPassword() {
  * one-time-display pattern used for product keys — the admin is
  * responsible for relaying it to the student out of band.
  */
-async function resetPassword(requester, targetUser) {
+async function resetPassword(requester, targetUser, req) {
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
 
@@ -230,11 +235,15 @@ async function resetPassword(requester, targetUser) {
     }),
   ]);
 
+  // Never log the temp password itself — only that a reset happened, by
+  // whom, and for whom.
   await writeAuditLog({
     actor: requester,
-    action: "user.password_reset",
+    action: AUDIT_ACTIONS.PASSWORD_CHANGED,
     targetType: "User",
     targetId: targetUser.id,
+    metadata: { selfService: false, resetBy: requester.id },
+    req,
   });
 
   return { tempPassword };

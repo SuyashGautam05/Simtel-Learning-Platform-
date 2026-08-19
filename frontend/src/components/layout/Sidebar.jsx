@@ -34,6 +34,7 @@ const collegeAdminLinks = [
   { to: "/college-admin", label: "Dashboard", icon: LayoutDashboard },
   { to: "/college-admin/students", label: "Students", icon: GraduationCap },
   { to: "/college-admin/modules", label: "Modules", icon: Package },
+  { to: "/college-admin/audit-logs", label: "Audit Logs", icon: ScrollText },
   { to: "/profile", label: "Profile", icon: User },
 ];
 

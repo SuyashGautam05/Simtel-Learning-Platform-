@@ -20,7 +20,7 @@ async function list(req, res, next) {
 async function create(req, res, next) {
   try {
     const input = createUserSchema.parse(req.body);
-    const user = await userService.createUser(req.user, input);
+    const user = await userService.createUser(req.user, input, req);
     return ok(res, { user }, "User created", 201);
   } catch (err) {
     next(err);
@@ -39,7 +39,7 @@ async function getOne(req, res, next) {
 async function update(req, res, next) {
   try {
     const input = updateUserSchema.parse(req.body);
-    const user = await userService.updateUser(req.user, req.targetUser, input);
+    const user = await userService.updateUser(req.user, req.targetUser, input, req);
     return ok(res, { user }, "User updated");
   } catch (err) {
     next(err);
@@ -48,7 +48,7 @@ async function update(req, res, next) {
 
 async function activate(req, res, next) {
   try {
-    const user = await userService.setUserStatus(req.user, req.targetUser, "ACTIVE");
+    const user = await userService.setUserStatus(req.user, req.targetUser, "ACTIVE", req);
     return ok(res, { user }, "User activated");
   } catch (err) {
     next(err);
@@ -57,7 +57,7 @@ async function activate(req, res, next) {
 
 async function deactivate(req, res, next) {
   try {
-    const user = await userService.setUserStatus(req.user, req.targetUser, "SUSPENDED");
+    const user = await userService.setUserStatus(req.user, req.targetUser, "SUSPENDED", req);
     return ok(res, { user }, "User deactivated");
   } catch (err) {
     next(err);
@@ -66,7 +66,7 @@ async function deactivate(req, res, next) {
 
 async function remove(req, res, next) {
   try {
-    const user = await userService.softDeleteUser(req.user, req.targetUser);
+    const user = await userService.softDeleteUser(req.user, req.targetUser, req);
     return ok(res, { user }, "User deleted");
   } catch (err) {
     next(err);
@@ -93,7 +93,7 @@ async function updateMe(req, res, next) {
 
 async function resetPassword(req, res, next) {
   try {
-    const result = await userService.resetPassword(req.user, req.targetUser);
+    const result = await userService.resetPassword(req.user, req.targetUser, req);
     return ok(
       res,
       result,

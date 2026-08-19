@@ -338,11 +338,18 @@ model AuditLog {
   actorEmail  String // snapshot at time of action, survives actor deletion
   actorRole   Role // snapshot at time of action
 
-  action     String // e.g. "college.create", "user.deactivate", "product_key.revoke"
+  action     String // standardized UPPER_SNAKE_CASE action, see src/constants/auditActions.js
   targetType String // e.g. "College", "User", "Product", "ProductKey"
   targetId   String?
 
   metadata Json? // small, non-sensitive context (never store secrets/passwords here)
+
+  // Captured for security-relevant events (auth, key generation/revocation)
+  // where knowing "from where" matters — nullable because not every
+  // action originates from an HTTP request with a meaningful client IP
+  // (e.g. none currently, but keeps this future-proof for background jobs).
+  ipAddress String?
+  userAgent String?
 
   createdAt DateTime @default(now())
 

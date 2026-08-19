@@ -10,7 +10,7 @@ const { ok } = require("../utils/apiResponse");
 async function generate(req, res, next) {
   try {
     const input = generateKeysSchema.parse(req.body);
-    const keys = await productKeyService.generateKeys(req.user, input);
+    const keys = await productKeyService.generateKeys(req.user, input, req);
     return ok(
       res,
       { keys },
@@ -43,7 +43,7 @@ async function getOne(req, res, next) {
 
 async function revoke(req, res, next) {
   try {
-    const key = await productKeyService.revokeKey(req.user, req.params.id);
+    const key = await productKeyService.revokeKey(req.user, req.params.id, req);
     return ok(res, { key }, "Product key revoked");
   } catch (err) {
     next(err);
@@ -52,7 +52,7 @@ async function revoke(req, res, next) {
 
 async function reactivate(req, res, next) {
   try {
-    const key = await productKeyService.reactivateKey(req.user, req.params.id);
+    const key = await productKeyService.reactivateKey(req.user, req.params.id, req);
     return ok(res, { key }, "Product key reactivated");
   } catch (err) {
     next(err);
@@ -62,7 +62,7 @@ async function reactivate(req, res, next) {
 async function exportCsv(req, res, next) {
   try {
     const filters = listKeysQuerySchema.parse(req.query);
-    const csv = await productKeyService.exportKeys(req.user, filters);
+    const csv = await productKeyService.exportKeys(req.user, filters, req);
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="product-keys-${Date.now()}.csv"`);
     return res.status(200).send(csv);
@@ -80,7 +80,7 @@ async function exportCsv(req, res, next) {
 async function activate(req, res, next) {
   try {
     const { key } = activateKeySchema.parse(req.body);
-    const result = await activateProductKey(req.user, key);
+    const result = await activateProductKey(req.user, key, req);
 
     const message = result.alreadyActivated
       ? "You already have access to this module"

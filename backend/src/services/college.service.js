@@ -1,6 +1,7 @@
 const prisma = require("../config/db");
 const { ApiError } = require("../utils/apiResponse");
 const { writeAuditLog } = require("../utils/audit");
+const { AUDIT_ACTIONS } = require("../constants/auditActions");
 
 async function listColleges() {
   return prisma.college.findMany({
@@ -15,7 +16,7 @@ async function getCollege(id) {
   return college;
 }
 
-async function createCollege(input, actor) {
+async function createCollege(input, actor, req) {
   const existing = await prisma.college.findUnique({ where: { code: input.code } });
   if (existing) throw new ApiError(409, "A college with this code already exists");
 
@@ -23,26 +24,28 @@ async function createCollege(input, actor) {
 
   await writeAuditLog({
     actor,
-    action: "college.create",
+    action: AUDIT_ACTIONS.COLLEGE_CREATED,
     targetType: "College",
     targetId: college.id,
     metadata: { code: college.code, name: college.name },
+    req,
   });
 
   return college;
 }
 
-async function updateCollege(id, input, actor) {
+async function updateCollege(id, input, actor, req) {
   const existing = await getCollege(id);
 
   const college = await prisma.college.update({ where: { id: existing.id }, data: input });
 
   await writeAuditLog({
     actor,
-    action: "college.update",
+    action: AUDIT_ACTIONS.COLLEGE_UPDATED,
     targetType: "College",
     targetId: college.id,
     metadata: { changes: Object.keys(input) },
+    req,
   });
 
   return college;
@@ -50,7 +53,7 @@ async function updateCollege(id, input, actor) {
 
 // Soft delete only — a college with historical users/keys/licenses is
 // never hard-deleted (see DATABASE.md cascading-rules rationale).
-async function deleteCollege(id, actor) {
+async function deleteCollege(id, actor, req) {
   const existing = await getCollege(id);
 
   const college = await prisma.college.update({
@@ -60,9 +63,10 @@ async function deleteCollege(id, actor) {
 
   await writeAuditLog({
     actor,
-    action: "college.delete",
+    action: AUDIT_ACTIONS.COLLEGE_DEACTIVATED,
     targetType: "College",
     targetId: college.id,
+    req,
   });
 
   return college;

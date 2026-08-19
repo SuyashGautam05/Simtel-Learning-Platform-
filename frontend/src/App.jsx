@@ -22,6 +22,7 @@ import SuperAdminSettings from "./pages/admin/SuperAdminSettings.jsx";
 import CollegeAdminDashboard from "./pages/collegeAdmin/CollegeAdminDashboard.jsx";
 import CollegeAdminStudents from "./pages/collegeAdmin/CollegeAdminStudents.jsx";
 import CollegeAdminModules from "./pages/collegeAdmin/CollegeAdminModules.jsx";
+import CollegeAdminAuditLogs from "./pages/collegeAdmin/CollegeAdminAuditLogs.jsx";
 
 export default function App() {
   return (
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="/college-admin" element={<CollegeAdminDashboard />} />
             <Route path="/college-admin/students" element={<CollegeAdminStudents />} />
             <Route path="/college-admin/modules" element={<CollegeAdminModules />} />
+            <Route path="/college-admin/audit-logs" element={<CollegeAdminAuditLogs />} />
           </Route>
 
           {/* Super Admin only — enforced by allowedRoles here AND by
