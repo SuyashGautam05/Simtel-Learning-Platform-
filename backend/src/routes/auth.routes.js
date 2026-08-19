@@ -24,11 +24,34 @@ const registerLimiter = rateLimit({
   message: { success: false, message: "Too many accounts created from this network. Try again later." },
 });
 
+// SECURITY: /refresh and /change-password previously had no rate limiting
+// at all — an attacker with a stolen/guessed refresh-token cookie could
+// hammer /refresh unthrottled, and a logged-in attacker (or someone who
+// has hijacked a session) could brute-force the current-password check on
+// /change-password with no backoff. Both get a generous but real ceiling;
+// legitimate usage of either is infrequent enough that this is invisible
+// to real users.
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many refresh attempts. Try again later." },
+});
+
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many password change attempts. Try again later." },
+});
+
 router.post("/register", registerLimiter, authController.register);
 router.post("/login", loginLimiter, authController.login);
-router.post("/refresh", authController.refresh);
+router.post("/refresh", refreshLimiter, authController.refresh);
 router.post("/logout", authController.logout);
 router.get("/me", requireAuth, authController.me);
-router.post("/change-password", requireAuth, authController.changePassword);
+router.post("/change-password", requireAuth, changePasswordLimiter, authController.changePassword);
 
 module.exports = router;

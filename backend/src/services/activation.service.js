@@ -33,7 +33,7 @@ function checkActivationRules(rules, user) {
  * The security-critical path. Every step below maps to the 10 numbered
  * requirements from the spec:
  *   1. Authenticate user       — done by requireAuth before this runs
- *   2. Validate the key        — hash lookup; unknown hash → 404
+ *   2. Validate the key        — hash lookup; unknown hash → generic error
  *   3. Check key status        — REVOKED / EXHAUSTED rejected
  *   4. Check expiration        — expiresAt vs now, flips status to EXPIRED
  *   5. Determine the product   — ALWAYS from key.productId, never from
@@ -45,25 +45,48 @@ function checkActivationRules(rules, user) {
  *   8. Return the authorized product      — response payload
  *   9. Record activation time             — activatedAt timestamps
  *  10. Record audit information           — writeAuditLog
+ *
+ * SECURITY: steps 2–4 and the exhaustion check in step 7 all throw the
+ * SAME generic ApiError (genericKeyFailure below) — same status code,
+ * same message — regardless of whether the submitted key doesn't exist
+ * at all, exists but was revoked, exists but expired, or exists but has
+ * no activations left. Previously these returned four distinguishable
+ * responses (404/403/410/409 with different text), which is a status
+ * oracle: an attacker submitting guesses could learn "that string
+ * matches a real key that happens to be revoked" versus "that string
+ * matches nothing," narrowing the search space even though the key
+ * itself is high-entropy. The REAL reason is still recorded — server-
+ * side only, in the audit log's metadata — for legitimate admin
+ * investigation; it is never part of the HTTP response.
  * -----------------------------------------------------------------------
  */
 async function activateProductKey(user, rawKey, req) {
   const keyHash = hashProductKey(rawKey);
 
-  // Step 2: validate the key exists at all. Generic message — we don't
-  // distinguish "malformed" from "well-formed but unknown" so a brute
-  // force attempt learns nothing from the response.
+  const genericKeyFailure = async (reason, key) => {
+    await writeAuditLog({
+      actor: user,
+      action: AUDIT_ACTIONS.PRODUCT_KEY_ACTIVATION_FAILED,
+      targetType: "ProductKey",
+      targetId: key?.id,
+      metadata: { reason }, // the real reason — internal/audit only, never in the HTTP response
+      req,
+    });
+    throw new ApiError(400, "Invalid or expired product key");
+  };
+
+  // Step 2: validate the key exists at all.
   const key = await prisma.productKey.findUnique({
     where: { keyHash },
     include: { product: true },
   });
   if (!key) {
-    throw new ApiError(404, "Invalid product key");
+    return genericKeyFailure("not_found", null);
   }
 
   // Step 3: status checks.
   if (key.status === "REVOKED") {
-    throw new ApiError(403, "This product key has been revoked");
+    return genericKeyFailure("revoked", key);
   }
 
   // Step 4: expiration — evaluated against real time, not just the
@@ -73,14 +96,14 @@ async function activateProductKey(user, rawKey, req) {
     if (key.status !== "EXPIRED") {
       await prisma.productKey.update({ where: { id: key.id }, data: { status: "EXPIRED" } });
     }
-    throw new ApiError(410, "This product key has expired");
+    return genericKeyFailure("expired", key);
   }
 
   if (key.activationsCount >= key.maxActivations) {
     if (key.status !== "EXHAUSTED") {
       await prisma.productKey.update({ where: { id: key.id }, data: { status: "EXHAUSTED" } });
     }
-    throw new ApiError(409, "This product key has already been used and has no remaining activations");
+    return genericKeyFailure("exhausted", key);
   }
 
   // Step 5: the product is whatever this key points to. There is no
@@ -88,12 +111,17 @@ async function activateProductKey(user, rawKey, req) {
   // even try to trust (see activateKeySchema).
   const product = key.product;
   if (!product || product.deletedAt || product.status === "ARCHIVED") {
-    throw new ApiError(404, "The module this key belongs to is no longer available");
+    return genericKeyFailure("product_unavailable", key);
   }
 
   checkActivationRules(key.activationRules, user);
 
-  // Step 7: duplicate-activation handling.
+  // Step 7: duplicate-activation handling. This branch is NOT part of the
+  // generic-failure collapsing above: reaching it requires the submitted
+  // key to already be genuinely valid (all checks above passed), so it
+  // reveals nothing new to someone still guessing — the "oracle" risk
+  // only applies to distinguishing valid-but-unusable keys from
+  // nonexistent ones, not to a key that has already been confirmed valid.
   const existingAccess = await prisma.userProductAccess.findUnique({
     where: { userId_productId: { userId: user.id, productId: product.id } },
   });

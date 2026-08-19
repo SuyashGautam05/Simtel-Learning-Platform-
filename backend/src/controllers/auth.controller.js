@@ -2,9 +2,16 @@ const authService = require("../services/auth.service");
 const { registerSchema, loginSchema, changePasswordSchema } = require("../validation/auth.validation");
 const { ok } = require("../utils/apiResponse");
 
+// SECURITY: `secure` is forced on whenever NODE_ENV=production, regardless
+// of COOKIE_SECURE. Previously this was 100% dependent on an operator
+// remembering to set COOKIE_SECURE=true — a single missed environment
+// variable in a production deploy would silently start sending auth
+// cookies over plain HTTP. Defaulting to secure in production and only
+// allowing COOKIE_SECURE=false to matter in non-production environments
+// (where HTTP-only local dev is expected) removes that failure mode.
 const cookieOptions = (maxAgeMs) => ({
   httpOnly: true,
-  secure: process.env.COOKIE_SECURE === "true",
+  secure: process.env.NODE_ENV === "production" || process.env.COOKIE_SECURE === "true",
   sameSite: "lax",
   domain: process.env.COOKIE_DOMAIN || undefined,
   maxAge: maxAgeMs,

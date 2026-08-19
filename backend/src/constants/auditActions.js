@@ -33,6 +33,12 @@ const AUDIT_ACTIONS = {
   USER_DELETED: "USER_DELETED",
   PRODUCT_KEY_REACTIVATED: "PRODUCT_KEY_REACTIVATED",
   PRODUCT_KEY_EXPORTED: "PRODUCT_KEY_EXPORTED",
+  // Security-audit addition: records the REAL reason a key activation
+  // attempt failed (not_found/revoked/expired/exhausted) server-side
+  // only — the HTTP response to the caller is always the same generic
+  // message regardless of which of these it was, to close the key-
+  // status oracle. See activation.service.js.
+  PRODUCT_KEY_ACTIVATION_FAILED: "PRODUCT_KEY_ACTIVATION_FAILED",
   COLLEGE_CREATED: "COLLEGE_CREATED",
   COLLEGE_UPDATED: "COLLEGE_UPDATED",
   COLLEGE_DEACTIVATED: "COLLEGE_DEACTIVATED",
